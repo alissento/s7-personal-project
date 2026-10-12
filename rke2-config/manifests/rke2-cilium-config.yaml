@@ -1,0 +1,43 @@
+# Overrides for the Cilium chart bundled with RKE2.
+#
+# Install on all masters as:  /var/lib/rancher/rke2/server/manifests/rke2-cilium-config.yaml
+# Put it there BEFORE the first start, so Cilium is installed with these values from day one.
+---
+apiVersion: helm.cattle.io/v1
+kind: HelmChartConfig
+metadata:
+  name: rke2-cilium
+  namespace: kube-system
+spec:
+  valuesContent: |-
+    # kube-proxy is disabled in server.yaml; Cilium handles Services with eBPF instead.
+    kubeProxyReplacement: true
+    # Reach the API server through the node-local endpoint (as in the RKE2 docs), NOT the VIP:
+    # kube-vip itself needs a working CNI before the VIP exists, so pointing Cilium at the VIP
+    # would deadlock the first boot.
+    k8sServiceHost: "localhost"
+    k8sServicePort: "6443"
+
+    # Take pod IPs from cluster-cidr in server.yaml (one /24 per node). Explicit on purpose:
+    # Cilium's own default pool is 10.0.0.0/8, which would overlap the node network.
+    ipam:
+      mode: kubernetes
+
+    # Must be unique per cluster for Cluster Mesh with the Netlab cluster.
+    # Set now — changing them later means restarting every pod.
+    cluster:
+      name: homelab
+      id: 1
+
+    # Flow visibility: who talked to whom, and what was dropped by policy.
+    hubble:
+      enabled: true
+      relay:
+        enabled: true
+      ui:
+        enabled: true
+
+    # Hardening phase (docs/ideas.md) — node-to-node encryption of pod traffic:
+    # encryption:
+    #   enabled: true
+    #   type: wireguard

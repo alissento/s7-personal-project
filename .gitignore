@@ -1,0 +1,28 @@
+# --- Secrets: never commit ---
+cluster-token
+agent-token
+*.kubeconfig
+rke2.yaml
+.env
+*.pem
+*.key
+*.agekey
+secrets/
+
+# --- OpenTofu / Terraform ---
+.terraform/
+*.tfstate
+*.tfstate.*
+*.tfvars
+!*.tfvars.example
+crash.log
+
+# --- Ansible ---
+*.retry
+
+# --- Claude Code: personal files (the shared .claude/ config IS committed) ---
+.claude/settings.local.json
+CLAUDE.local.md
+
+# --- OS ---
+.DS_Store

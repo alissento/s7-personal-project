@@ -1,0 +1,9 @@
+# Extra config for hl-master-02 and hl-master-03 ONLY — not hl-master-01.
+# Install as:  /etc/rancher/rke2/config.yaml.d/10-join.yaml
+#
+# RKE2 reads config.yaml first, then config.yaml.d/*.yaml, so this adds one key on top of server.yaml:
+# join the existing cluster instead of creating a new one.
+#
+# 9345 is the RKE2 supervisor port, reached through the kube-vip VIP. If the VIP is not up yet,
+# hl-master-01's own address (https://10.10.20.11:9345) works too.
+server: https://10.10.20.10:9345

@@ -1,0 +1,16 @@
+# RKE2 agent (worker) configuration — Homelab cluster
+#
+# Install on all three workers as:  /etc/rancher/rke2/config.yaml
+#
+# All IPs are EXAMPLES — see docs/network-plan.md.
+
+server: https://10.10.20.10:9345            # kube-vip VIP, RKE2 supervisor port
+token-file: /etc/rancher/rke2/agent-token   # the AGENT token — workers never get the cluster token
+
+# Same CIS host checks as the servers (needs the kernel parameters from prepare-node.sh).
+profile: cis
+
+node-label:
+  - topology.kubernetes.io/region=homelab
+# The kubelet is not allowed to set node-role.kubernetes.io/* on itself. Add the worker role after joining:
+#   kubectl label node hl-worker-01 hl-worker-02 hl-worker-03 node-role.kubernetes.io/worker=true

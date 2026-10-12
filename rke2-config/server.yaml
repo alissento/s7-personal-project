@@ -1,0 +1,53 @@
+# RKE2 server (control plane + etcd) configuration — Homelab cluster
+#
+# Install on ALL three masters as:  /etc/rancher/rke2/config.yaml
+# hl-master-02 and hl-master-03 additionally get server-join.yaml (see README.md).
+#
+# RKE2 refuses to join a server whose cluster-wide settings (CNI, CIDRs, kube-proxy, ...)
+# differ from the existing servers, so this one file is shared by all masters — change it everywhere or nowhere.
+#
+# All IPs, hostnames and domains are EXAMPLES — see docs/network-plan.md.
+
+# --- Join secrets --------------------------------------------------------------
+# Plain files on each node, created by hand (README.md step 3). Never commit their contents.
+token-file: /etc/rancher/rke2/cluster-token       # servers join with this
+agent-token-file: /etc/rancher/rke2/agent-token   # workers join with this; it cannot be used to join as a server
+
+# --- API endpoint ----------------------------------------------------------------
+# Extra names on the API server certificate. Node IPs and hostnames are added automatically.
+tls-san:
+  - 10.10.20.10        # kube-vip virtual IP (manifests/kube-vip.yaml)
+  - api.hl.home.arpa   # DNS name pointing at the VIP
+write-kubeconfig-mode: "0600"
+
+# --- Networking ------------------------------------------------------------------
+cni: cilium
+disable-kube-proxy: true      # Cilium replaces kube-proxy — see manifests/rke2-cilium-config.yaml
+cluster-cidr: 10.42.0.0/16    # pod IPs     — must not overlap with the Netlab cluster (Cilium Cluster Mesh)
+service-cidr: 10.43.0.0/16    # service IPs — kept unique per site as well
+cluster-dns: 10.43.0.10       # must be inside service-cidr
+ingress-controller: traefik   # default for new clusters since v1.36 (ingress-nginx is end-of-life)
+
+# --- Hardening -------------------------------------------------------------------
+# CIS benchmark mode. Enforces Pod Security "restricted" outside system namespaces, adds default
+# NetworkPolicies to kube-system/default/kube-public, and refuses to start unless the host has the
+# etcd user and CIS kernel parameters (prepare-node.sh sets up both).
+profile: cis
+secrets-encryption-provider: secretbox   # Secrets encrypted at rest in etcd; secretbox (XSalsa20-Poly1305) over the aescbc default
+
+# --- Control-plane placement -----------------------------------------------------
+# Keep application pods off the masters; only critical add-ons (Cilium, CoreDNS, kube-vip) tolerate this.
+node-taint:
+  - CriticalAddonsOnly=true:NoExecute
+node-label:
+  - topology.kubernetes.io/region=homelab
+
+# --- etcd backups (disaster recovery) --------------------------------------------
+etcd-snapshot-schedule-cron: "0 */6 * * *"   # every 6 hours
+etcd-snapshot-retention: 28                  # 7 days of local snapshots on each master
+# Off-site copies come in the DR phase. Credentials go in a drop-in that is not in git,
+# e.g. /etc/rancher/rke2/config.yaml.d/20-etcd-s3.yaml:
+# etcd-s3: true
+# etcd-s3-endpoint: s3.example.com
+# etcd-s3-bucket: rke2-etcd
+# etcd-s3-folder: homelab
