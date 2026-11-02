@@ -61,7 +61,7 @@ Why use them:
 The cost: each one starts cold and re-reads what it needs, so it uses more tokens. Don't use one for a small question.
 
 How to use them:
-- Ask by name: *"Use the security-reviewer agent to review rke2-config/"*.
+- Ask by name: *"Use the security-reviewer agent to review ansible/"*.
 - Claude can also pick one on its own when a task matches the agent's `description` — that's why descriptions say *when* to use the agent.
 - `/agents` lists, creates and edits agents. It can generate a first draft from your description.
 - Built-in agents exist too: **Explore** (fast read-only search across the codebase), **Plan** (designs an implementation plan) and **general-purpose**.
@@ -167,14 +167,14 @@ Keep the admin kubeconfig for yourself. When Claude proposes a change, it writes
 
 **Habits that pay off:**
 - One task per session; `/clear` between unrelated ones.
-- Reference files with `@`, e.g. `@rke2-config/server.yaml`, to pull them straight into context.
+- Reference files with `@`, e.g. `@ansible/inventory/homelab/hosts.yml`, to pull them straight into context.
 - Ask for a plan before changes with a blast radius; review diffs before committing. Claude commits and pushes only when you ask.
 - When Claude gets something about the project wrong, add one line to `CLAUDE.md` — that fixes it for every future session.
 
 ## 9. Things to try
 
-1. *"Use the security-reviewer agent to review rke2-config/"*
+1. *"Use the security-reviewer agent to review ansible/"*
 2. `/adr` *record the decision to use Cilium with kube-proxy replacement on the Homelab cluster*
 3. *"Use the research-scout agent to compare WireGuard, NetBird and Headscale for linking Homelab and Netlab, and write it to docs/research/vpn.md"*
-4. Two agents in parallel: *"In parallel: research-scout on Talos vs kubeadm for the Netlab cluster, and security-reviewer on rke2-config/"*
+4. Two agents in parallel: *"In parallel: research-scout on Talos vs kubeadm for the Netlab cluster, and security-reviewer on ansible/"*
 5. Create your own agent with `/agents` — for example an `ansible-writer` that turns `prepare-node.sh` into an Ansible role.

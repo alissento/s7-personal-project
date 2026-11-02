@@ -1,0 +1,8 @@
+---
+# Connection settings for every Homelab node.
+ansible_user: nknez
+ansible_ssh_private_key_file: ~/.ssh/homelab-ansible
+
+# Ubuntu 26.04 uses sudo-rs by default, and Ansible does not recognise its password prompt yet
+# (Launchpad bug 2122414, checked 2026-11-02). Use the classic sudo, which is still installed next to it.
+ansible_become_exe: sudo.ws

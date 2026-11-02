@@ -1,0 +1,10 @@
+---
+- name: Harden SSH (key-only login, no root login)
+  ansible.builtin.copy:
+    src: 00-ssh-hardening.conf
+    dest: /etc/ssh/sshd_config.d/00-ssh-hardening.conf
+    owner: root
+    group: root
+    mode: "0644"
+    validate: /usr/sbin/sshd -t -f %s   # test the file before installing it, so a typo cannot lock us out
+  notify: Restart ssh

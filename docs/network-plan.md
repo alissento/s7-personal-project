@@ -8,31 +8,32 @@ The one hard rule: **no range may overlap between the two sites or with the VPN.
 
 | Range | Homelab (Poland) | Netlab | Notes |
 |---|---|---|---|
-| Node subnet | 10.10.20.0/24 | 10.10.30.0/24 *(ask Netlab)* | dedicated VLAN/bridge for the cluster if possible |
-| Gateway / DNS | 10.10.20.1 | 10.10.30.1 | |
-| API VIP (kube-vip) | 10.10.20.10 | 10.10.30.10 | |
+| Node subnet | 10.10.10.0/24 | 10.10.30.0/24 *(ask Netlab)* | dedicated VLAN/bridge for the cluster if possible |
+| Gateway / DNS | 10.10.10.1 *(to confirm)* | 10.10.30.1 | |
+| API VIP (kube-vip) | 10.10.10.5 *(proposed)* | 10.10.30.10 | |
 | Pod CIDR | 10.42.0.0/16 | 10.44.0.0/16 | must not overlap (Cluster Mesh) |
 | Service CIDR | 10.43.0.0/16 | 10.45.0.0/16 | |
 | Cluster DNS | 10.43.0.10 | 10.45.0.10 | inside the service CIDR |
-| LoadBalancer pool | 10.10.20.200–239 | 10.10.30.200–239 | Cilium LB IPAM, later |
+| LoadBalancer pool | 10.10.10.200–239 | 10.10.30.200–239 | Cilium LB IPAM, later |
 | Cilium cluster name / ID | `homelab` / 1 | `netlab` / 2 | unique per cluster |
 | VPN overlay | 100.64.0.0/10 (Headscale/NetBird) or 10.99.0.0/24 (plain WireGuard) | | see docs/ideas.md |
 
 ## Homelab nodes
 
-| Hostname | Role | IP | Proxmox VMID |
-|---|---|---|---|
-| `api.hl.home.arpa` | kube-vip VIP | 10.10.20.10 | — |
-| hl-master-01 | RKE2 server (init) | 10.10.20.11 | 211 |
-| hl-master-02 | RKE2 server | 10.10.20.12 | 212 |
-| hl-master-03 | RKE2 server | 10.10.20.13 | 213 |
-| hl-worker-01 | RKE2 agent | 10.10.20.21 | 221 |
-| hl-worker-02 | RKE2 agent | 10.10.20.22 | 222 |
-| hl-worker-03 | RKE2 agent | 10.10.20.23 | 223 |
+Proxmox bridge network 10.10.10.0/24. Login user on every node: `nknez`.
 
-Naming: `<site>-<role>-NN`, site `hl` = Homelab, `nl` = Netlab. VMID is `2` followed by the IP's last octet (211 ↔ .11), so one can be read off the other.
+| Hostname | Role | IP |
+|---|---|---|
+| `api.hl.home.arpa` | kube-vip VIP | 10.10.10.5 *(proposed)* |
+| master-01 | RKE2 server (init) | 10.10.10.10 |
+| master-02 | RKE2 server | 10.10.10.11 |
+| master-03 | RKE2 server | 10.10.10.12 |
+| worker-01 | RKE2 agent | 10.10.10.20 |
+| worker-02 | RKE2 agent | 10.10.10.21 |
 
-DNS: `home.arpa` is the domain reserved for home networks ([RFC 8375](https://www.rfc-editor.org/rfc/rfc8375)). Add `api.hl.home.arpa → 10.10.20.10` and the node names on your router / Pi-hole / AdGuard; if you own a real domain, a subdomain of it works too (`tls-san` in server.yaml must match).
+Masters use `.10–.19`, workers `.20–.29`. Netlab nodes will need distinct names (e.g. an `nl-` prefix) so the two clusters are not confused in shared dashboards.
+
+DNS: `home.arpa` is the domain reserved for home networks ([RFC 8375](https://www.rfc-editor.org/rfc/rfc8375)). Add `api.hl.home.arpa → 10.10.10.5` and the node names on your router / Pi-hole / AdGuard; if you own a real domain, a subdomain of it works too (the RKE2 `tls-san` setting must match).
 
 ## Ports between Homelab nodes
 
@@ -57,9 +58,5 @@ Cross-site ports (VPN, Cluster Mesh API) are added once the site-to-site design 
 
 | Value | Files |
 |---|---|
-| VIP | `rke2-config/server.yaml` (tls-san), `server-join.yaml`, `agent.yaml`, `manifests/kube-vip.yaml` (`address`) |
-| VIP DNS name | `rke2-config/server.yaml` (tls-san) |
-| NIC name | `rke2-config/manifests/kube-vip.yaml` (`vip_interface`) |
-| Pod / service CIDR, cluster DNS | `rke2-config/server.yaml` |
-| Cilium cluster name / ID | `rke2-config/manifests/rke2-cilium-config.yaml` |
-| Node IPs, hostnames | `rke2-config/README.md` (VM loop, node table), this file |
+| Node IPs, hostnames | `ansible/inventory/homelab/hosts.yml`, this file |
+| VIP, CIDRs, NIC name, Cilium cluster name / ID | `ansible/inventory/homelab/group_vars/all.yml` *(added with the RKE2 step)* |

@@ -2,7 +2,7 @@
 
 Semester 7 personal project. This repo holds the Infrastructure as Code and GitOps manifests for two Kubernetes clusters on two sites, hardened with zero-trust principles, with automated disaster recovery between them.
 
-> **Status:** Phase 1 — building the Homelab cluster (RKE2, 3 masters + 3 workers). See the [roadmap](#roadmap).
+> **Status:** Phase 1 — building the Homelab cluster (RKE2, 3 masters + 2 workers, installed with Ansible). See the [roadmap](#roadmap).
 
 ## Research question
 
@@ -22,7 +22,7 @@ flowchart LR
     subgraph HL["Homelab · Poland · Proxmox — primary (proposed)"]
         direction TB
         HLCP["RKE2 control plane<br/>3 × master + kube-vip VIP"]
-        HLW["3 × worker<br/>banking app · PostgreSQL primary"]
+        HLW["2 × worker<br/>banking app · PostgreSQL primary"]
         HLCP --- HLW
     end
     subgraph NL["Netlab — secondary / DR (proposed)"]
@@ -43,7 +43,7 @@ flowchart LR
 |---|---|---|
 | Location | Poland | Netlab |
 | Hypervisor | Proxmox VE | TBD |
-| Kubernetes | RKE2 v1.36 — 3 masters, 3 workers | TBD — [options](docs/ideas.md#1-second-cluster-a-different-enterprise-approach) |
+| Kubernetes | RKE2 v1.36 — 3 masters, 2 workers | TBD — [options](docs/ideas.md#1-second-cluster-a-different-enterprise-approach) |
 | Role | primary (proposed) | secondary / DR (proposed) |
 
 ## Stack
@@ -61,9 +61,8 @@ flowchart LR
 
 ```
 .
-├── rke2-config/      Homelab RKE2 cluster: node configs, bootstrap manifests, node prep script
 ├── docs/             project plan, network plan, ideas & roadmap, Claude Code guide
-├── ansible/          (planned) node preparation and RKE2 install as code
+├── ansible/          node preparation and RKE2 install (in progress)
 ├── terraform/        (planned) Proxmox VMs with OpenTofu
 ├── clusters/         (planned) GitOps entry point per cluster
 ├── platform/         (planned) shared platform services: policies, observability, secrets
@@ -73,7 +72,7 @@ flowchart LR
 ## Getting started
 
 1. Read [docs/network-plan.md](docs/network-plan.md) and replace the example IPs and hostnames.
-2. Follow [rke2-config/README.md](rke2-config/README.md) to build the Homelab cluster.
+2. Build the Homelab cluster with the playbooks in [ansible/](ansible/) (in progress).
 
 ## Roadmap
 
@@ -85,7 +84,7 @@ Phases follow the timeline in the project plan.
   - [ ] Architecture diagrams and network plan
   - [ ] Decisions recorded as ADRs
 - **Weeks 4–9 — Two working clusters**
-  - [ ] Homelab RKE2 cluster (3 + 3) — *in progress*
+  - [ ] Homelab RKE2 cluster (3 + 2) — *in progress*
   - [ ] Baseline CIS scan (kube-bench)
   - [ ] Netlab cluster
   - [ ] Site-to-site VPN + Cilium Cluster Mesh

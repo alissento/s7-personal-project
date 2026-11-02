@@ -1,0 +1,17 @@
+---
+# The kubelet refuses to start while swap is on: Kubernetes plans memory per pod and
+# expects RAM to be RAM. Ubuntu's installer creates a swap file, /swap.img.
+- name: Turn swap off now
+  ansible.builtin.command: swapoff -a
+  when: ansible_facts.swaptotal_mb > 0   # only when swap is actually on
+
+- name: Keep swap off after a reboot (comment out swap lines in /etc/fstab)
+  ansible.builtin.replace:
+    path: /etc/fstab
+    regexp: '^([^#].*\sswap\s.*)$'
+    replace: '# \1'
+
+- name: Delete the swap file (frees ~4 GB of disk)
+  ansible.builtin.file:
+    path: /swap.img
+    state: absent

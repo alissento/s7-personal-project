@@ -70,7 +70,7 @@ Requirements: block unauthorised lateral movement, mTLS between workloads, zero-
 **Proposal:** Cilium for L3–L7 policy and node encryption, Istio ambient for mTLS and identity, Kyverno for admission, Tetragon for runtime. Check Istio's platform prerequisites for Cilium with kube-proxy replacement before installing, and check the maturity of both mTLS options in their current docs — this comparison is itself a good "Library" research item.
 
 Extra RKE2 hardening:
-- Join nodes with the **secure token format** (`K10<CA hash>::server:<secret>` from `/var/lib/rancher/rke2/server/token` and `.../agent-token` on hl-master-01) so joining nodes verify the cluster CA.
+- Join nodes with the **secure token format** (`K10<CA hash>::server:<secret>` from `/var/lib/rancher/rke2/server/token` and `.../agent-token` on master-01) so joining nodes verify the cluster CA.
 - Enable an **API audit policy** (`audit-policy-file` in server.yaml) and ship the audit log to Loki.
 - Move secrets encryption at rest to **KMS v2** backed by OpenBao.
 
@@ -126,7 +126,7 @@ Object storage must not live on the primary site. Options: storage at Netlab, cl
 |---|---|
 | **Longhorn** | from Rancher, pairs well with RKE2, replicated volumes, snapshots and backups to S3. Needs `open-iscsi` on workers. |
 | Proxmox CSI | volumes as Proxmox disks; ties the cluster to the hypervisor |
-| Rook-Ceph | most "enterprise", heavy for 3 workers |
+| Rook-Ceph | most "enterprise", heavy for 2 workers |
 
 **Proposal:** Longhorn on a second disk per worker. CloudNativePG replicates at the database level anyway.
 
@@ -167,16 +167,16 @@ Performance (requirement: "acceptable, measured latency overhead"):
 
 ## 11. Automation path
 
-1. **Now:** manual bring-up with `rke2-config/` — you learn how each piece works.
+1. **Now:** Ansible in `ansible/` installs and configures RKE2 on the VMs (chosen over a manual bring-up).
 2. **OpenTofu** with the `bpg/proxmox` provider: the 6 VMs from the template with cloud-init (replaces the `qm` loop).
 3. **Ansible** in `ansible/`: `prepare-node.sh` steps as tasks, configs as templates, tokens from Ansible Vault or SOPS. Writing your own small role teaches more and is easier to explain in the report than adopting a large community role.
 4. **Upgrades:** RKE2's system-upgrade-controller with Plans committed to Git — upgrades become GitOps changes.
 
 ## Suggested next steps
 
-1. Review `rke2-config/` and `docs/network-plan.md`; replace the example values.
+1. Confirm the remaining values in `docs/network-plan.md` (gateway, VIP).
 2. Send Netlab the questions at the top of this page.
-3. Build the Homelab cluster by hand, following `rke2-config/README.md`.
+3. Build the Homelab cluster with Ansible (`ansible/`).
 4. Run kube-bench immediately — baseline result for the report.
 5. Record decisions 1–8 as ADRs as you make them.
 6. Codify the cluster: OpenTofu for VMs, Ansible for nodes.

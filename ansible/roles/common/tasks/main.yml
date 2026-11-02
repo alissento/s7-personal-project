@@ -1,0 +1,14 @@
+---
+# Node preparation, one file per topic. Run a single part with --tags, e.g.:
+#   ansible-playbook site.yml -K --tags disk
+- name: SSH hardening
+  ansible.builtin.import_tasks: ssh.yml
+  tags: ssh
+
+- name: Disk layout
+  ansible.builtin.import_tasks: disk.yml
+  tags: disk
+
+- name: Swap off
+  ansible.builtin.import_tasks: swap.yml
+  tags: swap
