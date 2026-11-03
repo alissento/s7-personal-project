@@ -1,0 +1,24 @@
+---
+- name: Upgrade all packages (includes the pending security updates)
+  ansible.builtin.apt:
+    update_cache: true
+    cache_valid_time: 3600   # don't refresh the package list again if it's less than an hour old
+    upgrade: dist            # also installs new dependencies, e.g. a new kernel
+    autoremove: true         # remove packages nothing needs any more (old kernels)
+
+- name: Install base packages
+  ansible.builtin.apt:
+    name:
+      - curl               # used by the RKE2 install script
+      - qemu-guest-agent   # lets Proxmox see the VM's IP and shut it down cleanly
+    state: present
+
+- name: Check whether an update needs a reboot
+  ansible.builtin.stat:
+    path: /var/run/reboot-required   # Ubuntu creates this file when e.g. a new kernel was installed
+  register: reboot_required
+
+- name: Reboot if needed, one node at a time
+  ansible.builtin.reboot:
+  when: reboot_required.stat.exists
+  throttle: 1   # never more than one node down at once
