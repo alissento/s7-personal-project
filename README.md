@@ -128,7 +128,7 @@ The research follows the DOT framework:
 
 ## Secrets
 
-Nothing secret is ever committed. RKE2 join tokens are plain files on the nodes (`token-file`), kubeconfigs stay in `~/.kube`, and [.gitignore](.gitignore) blocks the usual suspects. Encrypted secrets (SOPS) and a secrets manager come in the hardening phase.
+Nothing secret is ever committed. RKE2 join tokens are plain files on the nodes (`token-file`), kept on the workstation in the gitignored `ansible/secrets/` folder, kubeconfigs stay in `~/.kube`, and [.gitignore](.gitignore) blocks the usual suspects. Encrypted secrets (SOPS) and a secrets manager come in the hardening phase.
 
 ## Working with Claude Code
 

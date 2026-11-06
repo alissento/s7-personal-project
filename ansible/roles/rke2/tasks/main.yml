@@ -1,0 +1,10 @@
+---
+# RKE2 install, one file per topic. Nothing here starts RKE2. Run a single part with --tags, e.g.:
+#   ansible-playbook site.yml -K --tags rke2-install
+- name: Install RKE2
+  ansible.builtin.import_tasks: install.yml
+  tags: rke2-install
+
+- name: Kernel settings
+  ansible.builtin.import_tasks: sysctl.yml
+  tags: rke2-sysctl

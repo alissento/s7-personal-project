@@ -9,3 +9,10 @@
     state: present
     update_cache: true
     cache_valid_time: 3600   # don't refresh the package list again if it's less than an hour old
+
+# The unit has no enabled state: it starts on boot when the VM has Proxmox's QEMU Guest Agent option on.
+# This task covers a node that got the package without a reboot, and fails if that option is off.
+- name: Start the guest agent
+  ansible.builtin.service:
+    name: qemu-guest-agent
+    state: started

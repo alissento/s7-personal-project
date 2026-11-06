@@ -1,0 +1,3 @@
+---
+# Which RKE2 service these nodes run.
+rke2_type: server

@@ -167,7 +167,7 @@ Performance (requirement: "acceptable, measured latency overhead"):
 
 ## 11. Automation path
 
-1. **Now:** Ansible in `ansible/` prepares the nodes and installs RKE2 (chosen over a manual bring-up). Node setup is tasks, configs are templates. Writing your own small role teaches more and is easier to explain in the report than adopting a large community role. How the join tokens reach the nodes is still open: secrets must stay out of the repo.
+1. **Now:** Ansible in `ansible/` prepares the nodes and installs RKE2 (chosen over a manual bring-up). Node setup is tasks, configs are templates. Writing your own small role teaches more and is easier to explain in the report than adopting a large community role. Join tokens are plain files in the gitignored `ansible/secrets/` folder, backed up in a password manager.
 2. **OpenTofu** with the `bpg/proxmox` provider: the 5 VMs from the template with cloud-init (replaces creating them by hand in Proxmox).
 3. **Upgrades:** RKE2's system-upgrade-controller with Plans committed to Git — upgrades become GitOps changes.
 

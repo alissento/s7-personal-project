@@ -1,0 +1,36 @@
+---
+# Stop early if a node does not match the plan. These tasks only read state, so they are safe to repeat.
+- name: Check the hostname matches the inventory
+  ansible.builtin.assert:
+    that: ansible_facts.hostname == inventory_hostname   # RKE2 rejects a second node with the same name
+    fail_msg: "Node calls itself {{ ansible_facts.hostname }}, the inventory says {{ inventory_hostname }}"
+    quiet: true
+
+- name: Check the node has its planned IP on the cluster NIC
+  ansible.builtin.assert:
+    that:
+      - rke2_node_interface in ansible_facts.interfaces
+      - ansible_facts[rke2_node_interface].ipv4.address == ansible_host
+    fail_msg: "Expected {{ ansible_host }} on {{ rke2_node_interface }}, see docs/network-plan.md"
+    quiet: true
+
+- name: Wait for the clock to be NTP-synchronised   # etcd and TLS certificates need correct time
+  ansible.builtin.command: timedatectl show --property=NTPSynchronized --value
+  register: common_ntp_sync
+  changed_when: false
+  check_mode: false
+  until: common_ntp_sync.stdout == 'yes'
+  retries: 6   # a node that has just booted needs a moment
+  delay: 10
+
+- name: Read the ufw setting
+  ansible.builtin.command: grep '^ENABLED=' /etc/ufw/ufw.conf
+  register: common_ufw_setting
+  changed_when: false
+  check_mode: false
+
+- name: Check ufw is off
+  ansible.builtin.assert:
+    that: common_ufw_setting.stdout == 'ENABLED=no'
+    fail_msg: "ufw is on: open the ports in docs/network-plan.md, then update this check"
+    quiet: true

@@ -18,7 +18,7 @@ Semester 7 research project: a secure, multi-site Kubernetes platform for a dumm
 - IPs, hostnames and domains are examples until the user confirms them. When changing one, update every file in the "Where the values live" table in `docs/network-plan.md`.
 - Hostnames: Homelab nodes are `master-NN` / `worker-NN` (as created in Proxmox); Netlab nodes get an `nl-` prefix.
 - Pod and service CIDRs must never overlap between sites (Cilium Cluster Mesh).
-- RKE2 settings that must match across servers must live in one place only (the Ansible RKE2 role, not written yet).
+- RKE2 settings that must match across servers must live in one place only (the Ansible RKE2 role).
 - Never put secrets in the repo — tokens, keys, kubeconfigs, S3 credentials. RKE2 reads tokens via `token-file`.
 - Pin versions (RKE2, charts, images) and note when they were checked.
 - Record significant technical decisions as ADRs (`/adr`).
