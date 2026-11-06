@@ -62,5 +62,6 @@ Cross-site ports (VPN, Cluster Mesh API) are added once the site-to-site design 
 | Value | Files |
 |---|---|
 | Node IPs, hostnames | `ansible/inventory/homelab/hosts.yml`, this file |
-| VIP, API hostname, CIDRs, NIC name, Cilium cluster name / ID, RKE2 version | `ansible/inventory/homelab/group_vars/all.yml`, this file |
+| VIP, API hostname, CIDRs, NIC name, Cilium cluster name / ID | `ansible/inventory/homelab/group_vars/all.yml`, this file |
+| RKE2 and kube-vip versions, node region label | `ansible/inventory/homelab/group_vars/all.yml` |
 | Gateway, DNS servers | the nodes' own network config (not managed by Ansible), this file |

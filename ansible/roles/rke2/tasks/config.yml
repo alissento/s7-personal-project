@@ -1,0 +1,33 @@
+---
+# Writes the config only. There is deliberately no restart handler: a config change on a running
+# cluster should be a planned, one-node-at-a-time restart, not a side effect of a playbook run.
+- name: Write the RKE2 config
+  ansible.builtin.template:
+    src: "config-{{ rke2_type }}.yaml.j2"
+    dest: /etc/rancher/rke2/config.yaml
+    owner: root
+    group: root
+    mode: "0600"
+
+- name: Make every master except the first join the existing cluster
+  ansible.builtin.template:
+    src: join.yaml.j2
+    dest: /etc/rancher/rke2/config.yaml.d/10-join.yaml
+    owner: root
+    group: root
+    mode: "0600"
+  when:
+    - rke2_type == 'server'
+    - inventory_hostname != groups['masters'][0]
+
+- name: Write the manifests RKE2 applies on start
+  ansible.builtin.template:
+    src: "{{ item }}.j2"
+    dest: "/var/lib/rancher/rke2/server/manifests/{{ item }}"
+    owner: root
+    group: root
+    mode: "0600"
+  loop:
+    - rke2-cilium-config.yaml
+    - kube-vip.yaml
+  when: rke2_type == 'server'

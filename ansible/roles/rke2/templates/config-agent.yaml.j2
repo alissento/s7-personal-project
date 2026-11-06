@@ -1,0 +1,9 @@
+# Managed by Ansible (roles/rke2). Manual changes are overwritten.
+server: https://{{ rke2_api_vip }}:9345      # kube-vip VIP, RKE2 supervisor port
+token-file: /etc/rancher/rke2/agent-token    # the agent token: workers never get the cluster token
+
+# Same CIS host checks as the servers (tasks/sysctl.yml sets the kernel parameters).
+profile: cis
+
+node-label:
+  - topology.kubernetes.io/region={{ rke2_node_region }}

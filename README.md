@@ -52,9 +52,9 @@ flowchart LR
 |---|---|---|
 | Node OS | Ubuntu 26.04 LTS | decided |
 | Kubernetes (Homelab) | RKE2 v1.36.5, CIS profile | decided |
-| CNI | Cilium with kube-proxy replacement + Hubble | planned for the RKE2 role, to review |
-| API high availability | kube-vip (ARP) | planned for the RKE2 role, to review |
-| Ingress | Traefik (RKE2 default) | planned for the RKE2 role, to review |
+| CNI | Cilium with kube-proxy replacement + Hubble | in the RKE2 role, to review |
+| API high availability | kube-vip (ARP) | in the RKE2 role, to review |
+| Ingress | Traefik (RKE2 default) | in the RKE2 role, to review |
 | VPN, mTLS, secrets, GitOps, DR, storage, observability | — | open — see [docs/ideas.md](docs/ideas.md) |
 
 ## Repository layout

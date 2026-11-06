@@ -8,3 +8,7 @@
 - name: Kernel settings
   ansible.builtin.import_tasks: sysctl.yml
   tags: rke2-sysctl
+
+- name: Configuration
+  ansible.builtin.import_tasks: config.yml
+  tags: rke2-config
