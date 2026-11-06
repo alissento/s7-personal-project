@@ -177,4 +177,4 @@ Keep the admin kubeconfig for yourself. When Claude proposes a change, it writes
 2. `/adr` *record the decision to use Cilium with kube-proxy replacement on the Homelab cluster*
 3. *"Use the research-scout agent to compare WireGuard, NetBird and Headscale for linking Homelab and Netlab, and write it to docs/research/vpn.md"*
 4. Two agents in parallel: *"In parallel: research-scout on Talos vs kubeadm for the Netlab cluster, and security-reviewer on ansible/"*
-5. Create your own agent with `/agents` — for example an `ansible-writer` that turns `prepare-node.sh` into an Ansible role.
+5. Create your own agent with `/agents` — for example an `ansible-writer` that drafts new tasks for the roles in `ansible/`.

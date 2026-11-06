@@ -4,6 +4,7 @@
 - name: Turn swap off now
   ansible.builtin.command: swapoff -a
   when: ansible_facts.swaptotal_mb > 0   # only when swap is actually on
+  changed_when: true                     # the when above means it only runs if there is swap to turn off
 
 - name: Keep swap off after a reboot (comment out swap lines in /etc/fstab)
   ansible.builtin.replace:

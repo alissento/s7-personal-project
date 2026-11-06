@@ -71,7 +71,7 @@ Requirements: block unauthorised lateral movement, mTLS between workloads, zero-
 
 Extra RKE2 hardening:
 - Join nodes with the **secure token format** (`K10<CA hash>::server:<secret>` from `/var/lib/rancher/rke2/server/token` and `.../agent-token` on master-01) so joining nodes verify the cluster CA.
-- Enable an **API audit policy** (`audit-policy-file` in server.yaml) and ship the audit log to Loki.
+- Enable an **API audit policy** (`audit-policy-file` in the RKE2 server config) and ship the audit log to Loki.
 - Move secrets encryption at rest to **KMS v2** backed by OpenBao.
 
 ## 4. Secrets management
@@ -137,7 +137,7 @@ Requirement: security events, blocked traffic and infrastructure metrics central
 - Metrics: kube-prometheus-stack per cluster; one Grafana with both clusters as data sources, or remote-write to a central store at the secondary site (survives primary loss).
 - Logs: Loki + Grafana Alloy (include the Kubernetes audit log).
 - Security: Hubble metrics and flow logs (dropped flows, policy verdicts) + Tetragon events → Grafana dashboards and alerts.
-- Turn on `etcd-expose-metrics` in server.yaml once Prometheus is in place.
+- Turn on `etcd-expose-metrics` in the RKE2 server config once Prometheus is in place.
 
 ## 9. The dummy banking app
 
@@ -167,16 +167,14 @@ Performance (requirement: "acceptable, measured latency overhead"):
 
 ## 11. Automation path
 
-1. **Now:** Ansible in `ansible/` installs and configures RKE2 on the VMs (chosen over a manual bring-up).
-2. **OpenTofu** with the `bpg/proxmox` provider: the 6 VMs from the template with cloud-init (replaces the `qm` loop).
-3. **Ansible** in `ansible/`: `prepare-node.sh` steps as tasks, configs as templates, tokens from Ansible Vault or SOPS. Writing your own small role teaches more and is easier to explain in the report than adopting a large community role.
-4. **Upgrades:** RKE2's system-upgrade-controller with Plans committed to Git — upgrades become GitOps changes.
+1. **Now:** Ansible in `ansible/` prepares the nodes and installs RKE2 (chosen over a manual bring-up). Node setup is tasks, configs are templates. Writing your own small role teaches more and is easier to explain in the report than adopting a large community role. How the join tokens reach the nodes is still open: secrets must stay out of the repo.
+2. **OpenTofu** with the `bpg/proxmox` provider: the 5 VMs from the template with cloud-init (replaces creating them by hand in Proxmox).
+3. **Upgrades:** RKE2's system-upgrade-controller with Plans committed to Git — upgrades become GitOps changes.
 
 ## Suggested next steps
 
-1. Confirm the remaining values in `docs/network-plan.md` (gateway, VIP).
-2. Send Netlab the questions at the top of this page.
-3. Build the Homelab cluster with Ansible (`ansible/`).
-4. Run kube-bench immediately — baseline result for the report.
-5. Record decisions 1–8 as ADRs as you make them.
-6. Codify the cluster: OpenTofu for VMs, Ansible for nodes.
+1. Send Netlab the questions at the top of this page.
+2. Build the Homelab cluster with Ansible (`ansible/`).
+3. Run kube-bench immediately — baseline result for the report.
+4. Record decisions 1–8 as ADRs as you make them.
+5. Codify the cluster: OpenTofu for VMs, Ansible for nodes.

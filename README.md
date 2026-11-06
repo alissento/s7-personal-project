@@ -52,9 +52,9 @@ flowchart LR
 |---|---|---|
 | Node OS | Ubuntu 26.04 LTS | decided |
 | Kubernetes (Homelab) | RKE2 v1.36.5, CIS profile | decided |
-| CNI | Cilium with kube-proxy replacement + Hubble | in config, to review |
-| API high availability | kube-vip (ARP) | in config, to review |
-| Ingress | Traefik (RKE2 default) | in config, to review |
+| CNI | Cilium with kube-proxy replacement + Hubble | planned for the RKE2 role, to review |
+| API high availability | kube-vip (ARP) | planned for the RKE2 role, to review |
+| Ingress | Traefik (RKE2 default) | planned for the RKE2 role, to review |
 | VPN, mTLS, secrets, GitOps, DR, storage, observability | — | open — see [docs/ideas.md](docs/ideas.md) |
 
 ## Repository layout
@@ -72,7 +72,16 @@ flowchart LR
 ## Getting started
 
 1. Read [docs/network-plan.md](docs/network-plan.md) and replace the example IPs and hostnames.
-2. Build the Homelab cluster with the playbooks in [ansible/](ansible/) (in progress).
+2. Build the Homelab cluster with the playbooks in [ansible/](ansible/) (in progress). Run these from `ansible/`:
+
+   ```bash
+   ansible-galaxy collection install -r requirements.yml   # once, on a new workstation
+   ansible-lint && yamllint .                              # check before running
+   ansible-playbook site.yml -K                            # prepare the nodes; safe to repeat
+   ansible-playbook upgrade.yml -K                         # OS upgrades and reboots, only when you mean to
+   ```
+
+   `upgrade.yml` is separate so that `site.yml` can never reboot a node. It has no drain step yet, so don't use it on a live cluster.
 
 ## Roadmap
 

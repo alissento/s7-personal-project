@@ -13,6 +13,6 @@
   ansible.builtin.import_tasks: swap.yml
   tags: swap
 
-- name: Packages and updates
+- name: Base packages
   ansible.builtin.import_tasks: packages.yml
   tags: packages
