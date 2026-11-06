@@ -79,6 +79,7 @@ flowchart LR
    ansible-lint && yamllint .                              # check before running
    ansible-playbook site.yml -K                            # prepare the nodes; safe to repeat
    ansible-playbook upgrade.yml -K                         # OS upgrades and reboots, only when you mean to
+   ansible-playbook workstation.yml -K                     # kubectl and kubeconfig on this machine, once the cluster runs
    ```
 
    `upgrade.yml` is separate so that `site.yml` can never reboot a node. It has no drain step yet, so don't use it on a live cluster.
