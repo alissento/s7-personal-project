@@ -8,14 +8,15 @@ ansible_ssh_private_key_file: ~/.ssh/homelab-ansible
 ansible_become_exe: sudo.ws
 
 # Cluster settings for the RKE2 role. docs/network-plan.md explains them and lists every place they appear.
-rke2_version: v1.36.5+rke2r1          # stable channel, checked 2026-11-06
+rke2_version: v1.36.6+rke2r1          # stable channel, changed 14/11/2026
 rke2_api_vip: 10.10.10.5              # shared API address, held by one master at a time (kube-vip)
 rke2_api_hostname: api.hl.home.arpa   # goes on the API certificate; no DNS record exists for it yet
 rke2_node_interface: ens18            # NIC that kube-vip announces the VIP on, same on every node
 rke2_node_region: homelab             # node label: topology.kubernetes.io/region
 kube_vip_version: v1.3.1              # latest release, checked 2026-11-06 (v1.3.0 is withdrawn upstream)
-rke2_cluster_cidr: 10.42.0.0/16       # pod IPs, must not overlap with Netlab (Cilium Cluster Mesh)
+rke2_cluster_cidr: 10.42.0.0/16       # pod IPs, must not overlap with EduCloud
 rke2_service_cidr: 10.43.0.0/16       # service IPs, also unique per site
 rke2_cluster_dns: 10.43.0.10          # must be inside the service CIDR
 cilium_cluster_name: homelab          # unique per cluster
 cilium_cluster_id: 1                  # unique per cluster; changing it later means restarting every pod
+rke2_token_dir: "{{ playbook_dir }}/secrets/homelab"   # join tokens on the workstation, gitignored

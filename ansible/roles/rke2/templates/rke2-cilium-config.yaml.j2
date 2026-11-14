@@ -22,7 +22,32 @@ spec:
     ipam:
       mode: kubernetes
 
-    # Must be unique per cluster for Cluster Mesh with Netlab. Set now: changing them later
+    # The masters carry CriticalAddonsOnly=true:NoExecute (server config), and the operator's default
+    # tolerations in rke2-cilium 1.20.200 don't include it. Without the operator, the agent waits forever
+    # for its CRDs and never gets ready. Setting tolerations replaces the chart's list, so the defaults
+    # are repeated here with CriticalAddonsOnly added.
+    operator:
+      tolerations:
+        - key: CriticalAddonsOnly
+          operator: Exists
+        - key: node-role.kubernetes.io/control-plane
+          operator: Exists
+        - key: node-role.kubernetes.io/etcd
+          operator: Exists
+        - key: node-role.kubernetes.io/master
+          operator: Exists
+        - key: node.cilium.io/agent-not-ready
+          operator: Exists
+        - key: node.cloudprovider.kubernetes.io/uninitialized
+          operator: Exists
+        - key: node.kubernetes.io/not-ready
+          operator: Exists
+        - key: node.kubernetes.io/unreachable
+          operator: Exists
+          effect: NoExecute
+          tolerationSeconds: 300
+
+    # Must be unique per cluster for a possible Cluster Mesh with EduCloud. Set now: changing them later
     # means restarting every pod.
     cluster:
       name: {{ cilium_cluster_name }}

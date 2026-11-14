@@ -12,3 +12,7 @@
 - name: Configuration
   ansible.builtin.import_tasks: config.yml
   tags: rke2-config
+
+- name: Join tokens
+  ansible.builtin.import_tasks: tokens.yml
+  tags: rke2-tokens
