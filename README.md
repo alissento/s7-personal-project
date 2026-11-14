@@ -2,7 +2,7 @@
 
 Semester 7 personal project. This repo holds the Infrastructure as Code and GitOps manifests for two Kubernetes clusters on two sites, hardened with zero-trust principles, with automated disaster recovery between them.
 
-> **Status:** Phase 1 — building the skeleton by 2026-11-19: both RKE2 clusters, Rancher managing both, and the NetBird link between the sites. See the [roadmap](#roadmap).
+> **Status:** Phase 1 — building the skeleton by 2026-11-19: both RKE2 clusters, Rancher managing both, and the NetBird link between the sites. Homelab cluster done (2026-11-14); EduCloud next. See the [roadmap](#roadmap).
 
 ## Research question
 
@@ -71,7 +71,7 @@ flowchart LR
 .
 ├── docs/             project plan, network plan, ideas & roadmap, Claude Code guide
 ├── ansible/          node preparation and RKE2 install (in progress)
-├── terraform/        (planned) Proxmox VMs with OpenTofu
+├── opentofu/         (planned) EduCloud VMs via the CloudStack API; later Homelab's Proxmox VMs
 ├── clusters/         (planned) GitOps entry point per cluster
 ├── platform/         (planned) shared platform services: policies, observability, secrets
 └── apps/             (planned) the dummy banking application
@@ -102,8 +102,8 @@ Phases follow the timeline in the project plan.
   - [ ] Architecture diagrams and network plan
   - [ ] Decisions recorded as ADRs
 - **Weeks 4–9 — Two working clusters**
-  - [ ] Homelab RKE2 cluster (3 + 2) — *in progress*
-  - [ ] Baseline CIS scan (kube-bench)
+  - [x] Homelab RKE2 cluster (3 + 2) — Ansible, VIP failover tested
+  - [x] Baseline CIS scan (kube-bench) — rerun before hardening
   - [ ] Rancher on its own VM at EduCloud; Homelab imported
   - [ ] EduCloud RKE2 cluster, provisioned by Rancher
   - [ ] NetBird link between the sites

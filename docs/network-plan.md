@@ -1,6 +1,6 @@
 # Network plan
 
-> **Homelab** values are confirmed and were checked on the nodes on 2026-11-06. **EduCloud** (the school cloud, previously Netlab) values are still examples. When a value changes, update every file listed under [Where the values live](#where-the-values-live).
+> **Homelab** values are confirmed and were checked on the nodes on 2026-11-06. **EduCloud** (the school cloud, previously Netlab; runs Apache CloudStack) values are still examples. When a value changes, update every file listed under [Where the values live](#where-the-values-live).
 
 Rule: **no range may overlap between the two sites.** The sites are linked by NetBird, which routes each site's node subnet to the other, so overlapping node subnets would break the link. Unique pod and service ranges keep logs, network policies and dashboards unambiguous, and keep Cilium Cluster Mesh possible later.
 

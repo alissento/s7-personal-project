@@ -2,7 +2,7 @@
 
 This folder turns five freshly installed Ubuntu 26.04 VMs into an RKE2 Kubernetes cluster (3 masters, 2 workers). Everything is code: running the same playbook again changes only what does not match, so the nodes cannot drift from what is written here.
 
-Status on 2026-11-14: node preparation is done and confirmed on all nodes; RKE2 is installed and configured and the join tokens are in place. Next: the ordered first start (see [What is missing](#9-what-is-missing)).
+Status on 2026-11-14: the Homelab cluster is running (3 masters + 2 workers Ready, Cilium, kube-vip VIP with failover tested). The steps below build it from scratch.
 
 ## Contents
 
@@ -377,10 +377,11 @@ ansible-playbook site.yml --list-tasks                # show every task and its 
 
 ## 9. What is missing
 
-Before the cluster can start:
+The cluster runs; these are known gaps in the code:
 
-1. **Ordered first start** (`--tags rke2-start`): master-01 first, until it is Ready and the VIP answers; then master-02 and master-03 one at a time (keeps etcd quorum healthy); then the workers.
-2. **Verification.** 5 nodes Ready, Cilium healthy, VIP failover tested, then `workstation.yml` and a kube-bench baseline.
+- `upgrade.yml` has no drain before a reboot and no "node Ready" wait after it, so it is not safe on the running cluster yet.
+- Kubernetes upgrades are not automated: `rke2_version` only applies to new installs. Planned: system-upgrade-controller Plans in Git (see [docs/ideas.md](../docs/ideas.md) §11).
+- The CIS findings from the baseline scan are deliberately left for the hardening phase.
 
 ---
 

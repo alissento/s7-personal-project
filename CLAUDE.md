@@ -11,7 +11,8 @@ Semester 7 research project: a secure, multi-site Kubernetes platform for a dumm
 
 - `ansible/` — node preparation and RKE2 install for Homelab (inventory, roles, playbooks); written step by step with the user
 - `docs/` — plan, network plan, ideas, Claude Code guide; ADRs go in `docs/adr/`, research write-ups in `docs/research/`
-- `terraform/`, `clusters/`, `platform/`, `apps/` — planned
+- `opentofu/` — EduCloud VMs via the Apache CloudStack API (next); later Homelab's Proxmox VMs
+- `clusters/`, `platform/`, `apps/` — planned
 
 ## Conventions
 

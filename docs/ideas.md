@@ -10,7 +10,8 @@ Tool versions and project status as of 2026-11-14.
 
 | Decision | Choice | Why |
 |---|---|---|
-| Second site | **EduCloud**, the school cloud (previously called Netlab): VPC-style networks and VMs; room for 3 masters + 2 workers plus extra VMs | |
+| Second site | **EduCloud**, the school cloud (previously called Netlab), running **Apache CloudStack**: VPC-style networks and VMs with an API; room for 3 masters + 2 workers plus extra VMs | |
+| EduCloud VMs as code | **OpenTofu** with the Apache CloudStack provider (`cloudstack/cloudstack` 0.7.0 in the OpenTofu registry, checked 2026-11-14), in `opentofu/educloud/` | the network, firewall/egress rules and the 7 VMs are reproducible; OpenTofu is the open-source (MPL) fork of Terraform with built-in state encryption. Fallback for the skeleton: create the VMs by hand, codify after. |
 | Kubernetes on both sites | **RKE2** | one distribution to learn and harden, the same CIS baseline on both sites, the Homelab Ansible work carries over, first-class Rancher support. Talos was dropped: a new OS without SSH would cost days and make the Ansible role useless there. |
 | Cross-site connectivity | **NetBird** | no port forwarding at either site, deny-by-default access policies, open source including the control server, and it routes whole subnets so ordinary tools (`ping`, `tcpdump`) work. Tailscale and OpenZiti were considered (§2). |
 | Central management | **Rancher**, on its own VM at EduCloud | the plan's "centralized management plane"; at the DR site it survives the loss of the primary (§5) |
@@ -28,7 +29,7 @@ Tool versions and project status as of 2026-11-14.
 | 6 | Where backups live | budget, EduCloud storage | object storage that is *not* on the primary site |
 | 7 | Dummy banking app | — | Bank of Anthos, adapted (§9) |
 
-**Ask EduCloud:** whether VMs may reach the internet over HTTPS and UDP (NetBird and Rancher's agents only dial out), and whether VMs can be created through an API (for OpenTofu later).
+**Check in EduCloud (CloudStack):** whether the network's egress policy lets VMs reach the internet over HTTPS and UDP (NetBird and Rancher's agents only dial out), whether an Ubuntu 26.04 template exists, and whether the quota fits 7 VMs. `cmk` (CloudMonkey, CloudStack's CLI) lists zones, templates, offerings and limits.
 
 ---
 
@@ -198,16 +199,16 @@ Performance (requirement: "acceptable, measured latency overhead"):
 ## 11. Automation path
 
 1. **Now:** Ansible in `ansible/` prepares the nodes and installs RKE2 (chosen over a manual bring-up). Node setup is tasks, configs are templates. Writing your own small role teaches more and is easier to explain in the report than adopting a large community role. Join tokens are plain files in the gitignored `ansible/secrets/` folder, backed up in a password manager.
-2. **EduCloud:** the same `common` role prepares the nodes, then Rancher provisions RKE2 (§1).
-3. **OpenTofu** with the `bpg/proxmox` provider: the 5 VMs from the template with cloud-init (replaces creating them by hand in Proxmox).
+2. **EduCloud:** OpenTofu creates the network and VMs through the CloudStack API, the same `common` role prepares the nodes, then Rancher provisions RKE2 (§1). Later: CloudStack cloud-init user-data can run Rancher's registration command, so a new node joins by itself.
+3. **OpenTofu for Homelab** (`opentofu/homelab/`) with the `bpg/proxmox` provider: the 5 VMs from the template with cloud-init (replaces creating them by hand in Proxmox).
 4. **Upgrades:** RKE2's system-upgrade-controller with Plans committed to Git — upgrades become GitOps changes.
 
 ## Suggested next steps
 
 Milestone: the **skeleton by 2026-11-19**: both RKE2 clusters running, Rancher managing both, the NetBird link working.
 
-1. Homelab RKE2 with Ansible (`ansible/`); run kube-bench straight away for the baseline.
-2. EduCloud: network 10.10.30.0/24, VMs, the Ansible `common` role; Rancher on its own VM.
+1. ~~Homelab RKE2 with Ansible~~ — done 2026-11-14: 3 masters + 2 workers Ready, VIP failover tested (~3 s), kube-bench baseline taken (`ansible/cis-scan.yml`; rerun it before hardening).
+2. EduCloud: OpenTofu for the network 10.10.30.0/24 and the 7 VMs, the Ansible `common` role; Rancher on its own VM (single-node RKE2 via the `rke2` role, Rancher hostname via sslip.io).
 3. EduCloud RKE2 provisioned by Rancher (fallback: the Ansible role).
 4. NetBird: one gateway per site, routes, access policy, static routes on the nodes; import Homelab into Rancher.
 5. Check the RKE2-on-both-sites change with the coaches (§1).
