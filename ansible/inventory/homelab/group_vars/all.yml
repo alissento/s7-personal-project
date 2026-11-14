@@ -8,7 +8,7 @@ ansible_ssh_private_key_file: ~/.ssh/homelab-ansible
 ansible_become_exe: sudo.ws
 
 # Cluster settings for the RKE2 role. docs/network-plan.md explains them and lists every place they appear.
-rke2_version: v1.36.6+rke2r1          # stable channel, changed 14/11/2026
+rke2_version: v1.36.5+rke2r1          # stable channel, changed 14/11/2026
 rke2_api_vip: 10.10.10.5              # shared API address, held by one master at a time (kube-vip)
 rke2_api_hostname: api.hl.home.arpa   # goes on the API certificate; no DNS record exists for it yet
 rke2_node_interface: ens18            # NIC that kube-vip announces the VIP on, same on every node
