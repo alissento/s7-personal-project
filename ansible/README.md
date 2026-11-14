@@ -184,6 +184,18 @@ Two plays:
 
 `--tags kubectl` installs only kubectl and needs neither the cluster nor sudo. The kubeconfig is full cluster-admin: it stays out of Git (see `.gitignore`).
 
+### `cis-scan.yml`: CIS benchmark scan
+
+Runs [kube-bench](https://github.com/aquasecurity/kube-bench) on every node against the CIS Kubernetes Benchmark for RKE2 and saves the results in `docs/lab/cis/<date>/` (a `.txt` per node to read, a `.json` for the numbers). Run it on the fresh cluster as the baseline, then after each hardening step, and compare the totals (PASS / FAIL / WARN).
+
+| Node | Sections checked |
+|---|---|
+| master-01 | control plane, etcd, kubelet, and the cluster-wide policies (RBAC, Pod Security, network policies) |
+| master-02, master-03 | control plane, etcd, kubelet |
+| workers | kubelet |
+
+The download is checked against the release's checksum file; the only change on the nodes is kube-bench unpacked into `/opt`. kube-bench v0.16.0's newest RKE2 profile is `rke2-cis-1.9`, which was written for older Kubernetes versions than 1.36: some results may reflect that, and the report should name the profile used.
+
 ---
 
 ## 6. Role `common`: node preparation
