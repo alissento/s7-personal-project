@@ -2,7 +2,11 @@
 
 This folder will describe everything the project needs in EduCloud (the school cloud, running Apache CloudStack 4.22.1.1) as code: the network and the 7 VMs from [docs/network-plan.md](../../docs/network-plan.md). OpenTofu compares this description with what exists in EduCloud and creates, changes or deletes only the difference.
 
-Status on 2026-11-14: **step 3a**. The provider connects to EduCloud and looks up the zone, the Ubuntu image and the offerings. Nothing is created yet. Next: the VPC with its three tiers and ACLs (3b), then the SSH key and the VMs (3c).
+Status on 2026-11-15:
+- **3a** done: the provider connects to EduCloud and looks up the zone, the Ubuntu image and the offerings.
+- **3b** written: the VPC with its three tiers and network ACLs ([section 5](#5-network-networktf)).
+- **3c** next: the SSH key, the 7 VMs and the SSH port forward to the jump host.
+- Later, with NetBird: the VPC static route to Homelab and the cross-site ACL rules.
 
 ## 1. Quick start
 
@@ -34,6 +38,14 @@ read -rsp 'State passphrase: ' p; echo
 
 The passphrase is the only protection of a copied state file, and it can be guessed offline at any speed, so a single word, even repeated, is too weak. Keep it in a password manager. **Without it the state cannot be read.** The VMs keep running, but OpenTofu would no longer know they are its own.
 
+**Your public IPs** (home and school), the only sources allowed to SSH to the jump host. They are personal data, so they stay out of the repo. Find each with `curl -s https://ifconfig.me` while on that network:
+
+```bash
+(umask 077; echo "export TF_VAR_admin_cidrs='[\"203.0.113.7/32\",\"198.51.100.0/24\"]'" >> ~/.config/educloud/cloudstack.env)
+```
+
+When an IP changes, edit that line and run `tofu apply`; only the `edge` ACL changes. `0.0.0.0/0` is rejected on purpose.
+
 **Commands**, always run from inside `opentofu/educloud/`:
 
 ```bash
@@ -51,9 +63,10 @@ tofu apply       # make the changes, after showing the plan and asking "yes"
 |---|---|
 | `versions.tf` | required OpenTofu (1.13.x) and provider (`cloudstack/cloudstack` 0.7.0) versions; state and plan encryption |
 | `providers.tf` | the CloudStack provider, empty on purpose: credentials come from the environment |
-| `variables.tf` | `state_passphrase`, sensitive and ephemeral |
+| `variables.tf` | `state_passphrase` (sensitive, ephemeral); `admin_cidrs` (your public IPs, validated) |
 | `data.tf` | look-ups: zone, template, compute offerings, VPC and tier offerings |
-| `outputs.tf` | prints what the look-ups found |
+| `network.tf` | the VPC, its three tiers, one network ACL per tier and their rules |
+| `outputs.tf` | prints what the look-ups found, the VPC's public IP and the tier IDs |
 | `.terraform.lock.hcl` | written by `tofu init`: the exact provider version and its checksums. **Committed**, so every `init` gets the same, verified provider |
 
 Not in Git (see `.gitignore`): `.terraform/` (the downloaded provider), `terraform.tfstate*` (the state), `*.tfvars`.
@@ -82,7 +95,30 @@ What an encrypted state looks like: `head -c 200 terraform.tfstate` shows `seria
 
 The state is stored locally, so it lives on this PC only. Because it is encrypted, a copy can be kept anywhere (cloud drive, USB stick). A remote backend (S3) is a later improvement.
 
-## 5. Look-ups (`data.tf`)
+## 5. Network (`network.tf`)
+
+One VPC with three tiers. The addresses, the rule summary and the reasons for this design are in [docs/network-plan.md](../../docs/network-plan.md#educloud-network-and-vms).
+
+| Resource | Count | What it is |
+|---|---|---|
+| `cloudstack_vpc.educloud` | 1 | the VPC 10.10.30.0/23. CloudStack starts its virtual router (VR) and gives it a public source NAT IP (shown in the `vpc` output) |
+| `cloudstack_network_acl.tier` | 3 | an empty ACL per tier (`ec-nodes`, `ec-edge`, `ec-mgmt`) |
+| `cloudstack_network.tier` | 3 | the tiers, each attached to its ACL |
+| `cloudstack_network_acl_ruleset.<tier>` | 3 | the rules of each ACL (`<tier>` is `nodes`, `edge` or `mgmt`) |
+
+`for_each` creates one ACL and one tier per entry of `local.tiers`. The rules are three separate resources because they differ per tier and are easier to review side by side.
+
+How CloudStack's network ACLs behave, and so how to read `network.tf`:
+- rules are checked from the lowest number up, and the first match decides. Numbering here: `1xx` ingress allow, `199` ingress deny all, `5xx` egress allow, `599` egress deny all;
+- they are stateful: replies to an allowed connection always get back;
+- a new ACL denies unmatched ingress but **allows** unmatched egress, hence the explicit `599` rule;
+- for egress rules the CIDR is the destination and the source is the whole tier, so a rule cannot be limited to one VM. This is why the gateway and Rancher have their own tiers;
+- traffic between VMs in the same tier does not pass the VR and is not filtered (host firewalls or Cilium host policies can cover that later);
+- the rules filter by port and CIDR, not by domain name: "443 to anywhere" means any HTTPS server. Name-based egress control comes later, inside the clusters (Cilium `toFQDNs`).
+
+`managed = true` on each ruleset: a rule added by hand (in the EduCloud UI or with `cmk`) is deleted on the next `apply`, so the ACLs cannot drift from this file.
+
+## 6. Look-ups (`data.tf`)
 
 What `cmk` found on 2026-11-14, and what each look-up must return:
 
@@ -102,17 +138,17 @@ Two provider behaviours to know (provider v0.7.0 source code):
 - every filter value is a **regular expression**, so they are anchored with `^…$`: `Small Instance` alone would also match `Small Instance +` and `Small Instance ++`;
 - when several items match, the provider **silently picks the newest**. A loose template filter would pick the newer "Ubuntu 26.0.4 …" template, whose description says it has a `ubuntu/ubuntu` login baked in. That is why the template is pinned by ID: a new upload with the same name must not replace the VMs.
 
-## 6. Troubleshooting
+## 7. Troubleshooting
 
 | Symptom | Cause | Fix |
 |---|---|---|
-| `tofu` asks for `var.state_passphrase` | the env file is not loaded in this terminal | `source ~/.config/educloud/cloudstack.env` |
+| `tofu` asks for `var.state_passphrase` or `var.admin_cidrs` | the env file is not loaded in this terminal, or the line is missing | `source ~/.config/educloud/cloudstack.env` |
 | `passphrase is too short (minimum 16 characters)` | OpenTofu's own minimum for pbkdf2 | use the generated passphrase |
 | `decryption failed for all provided methods` | wrong passphrase for an existing state | take the one from the password manager |
 | `No … is matching with the specified regex` | the name or ID no longer exists in EduCloud | check with `cmk list templates templatefilter=executable keyword=ubuntu` (or `serviceofferings`, ...) |
 | provider error about the API URL or keys | the `CLOUDSTACK_*` variables are missing or wrong | `source` the env file; test the keys with `cmk list zones` |
 
-## 7. Sources
+## 8. Sources
 
 Checked 2026-11-14.
 

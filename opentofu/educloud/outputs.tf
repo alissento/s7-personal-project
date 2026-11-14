@@ -31,3 +31,16 @@ output "network_offerings" {
     vpc_tier = data.cloudstack_network_offering.vpc_tier.id
   }
 }
+
+output "vpc" {
+  description = "The VPC and its public source NAT IP (the address VMs reach the internet from)."
+  value = {
+    id            = cloudstack_vpc.educloud.id
+    source_nat_ip = cloudstack_vpc.educloud.source_nat_ip
+  }
+}
+
+output "tiers" {
+  description = "Tier network IDs, by tier."
+  value       = { for k, n in cloudstack_network.tier : k => n.id }
+}

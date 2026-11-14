@@ -1,6 +1,6 @@
 # Network plan
 
-> **Homelab** values are confirmed and were checked on the nodes on 2026-11-06. **EduCloud** (the school cloud, previously Netlab; runs Apache CloudStack) values are still examples. When a value changes, update every file listed under [Where the values live](#where-the-values-live).
+> **Homelab** values are confirmed and were checked on the nodes on 2026-11-06. **EduCloud** (the school cloud, previously Netlab; runs Apache CloudStack 4.22) values are decided (VPC design chosen on 2026-11-14) and are created by OpenTofu (`opentofu/educloud/`); they are not yet checked on running VMs. When a value changes, update every file listed under [Where the values live](#where-the-values-live).
 
 Rule: **no range may overlap between the two sites.** The sites are linked by NetBird, which routes each site's node subnet to the other, so overlapping node subnets would break the link. Unique pod and service ranges keep logs, network policies and dashboards unambiguous, and keep Cilium Cluster Mesh possible later.
 
@@ -8,17 +8,18 @@ Rule: **no range may overlap between the two sites.** The sites are linked by Ne
 
 | Range | Homelab (Poland) | EduCloud | Notes |
 |---|---|---|---|
-| Node subnet | 10.10.10.0/24 | 10.10.30.0/24 *(ask EduCloud)* | dedicated VLAN/bridge for the cluster if possible |
-| Gateway | 10.10.10.1 | 10.10.30.1 | |
-| DNS servers | 1.1.1.1, 8.8.8.8 | 10.10.30.1 *(ask EduCloud)* | the Homelab gateway does not answer DNS (TCP 53 refused) |
+| Site range | 10.10.10.0/24 | 10.10.30.0/23 (the VPC) | the range the other site routes through NetBird |
+| Node subnet | 10.10.10.0/24 | 10.10.30.0/24 (VPC tier `nodes`) | dedicated VLAN/bridge for the cluster if possible |
+| Gateway | 10.10.10.1 | 10.10.30.1 (the VPC's virtual router) | |
+| DNS servers | 1.1.1.1, 8.8.8.8 | the tier's virtual router (10.10.30.1 for the nodes) | the Homelab gateway does not answer DNS (TCP 53 refused); at EduCloud the ACLs allow DNS only to the virtual router |
 | API VIP (kube-vip) | 10.10.10.5 | 10.10.30.10 | |
 | Pod CIDR | 10.42.0.0/16 | 10.44.0.0/16 | unique per site |
 | Service CIDR | 10.43.0.0/16 | 10.45.0.0/16 | |
 | Cluster DNS | 10.43.0.10 | 10.45.0.10 | inside the service CIDR |
 | LoadBalancer pool | 10.10.10.200–239 | 10.10.30.200–239 | Cilium LB IPAM, later |
 | Cilium cluster name / ID | `homelab` / 1 | `educloud` / 2 | unique per cluster |
-| NetBird gateway (routing peer) | `gw-01` 10.10.10.30 *(proposed)* | `ec-gw-01` 10.10.30.30 *(proposed)* | advertises the site's node subnet to the other site ([ideas §2](ideas.md#2-cross-site-connectivity-netbird)) |
-| Rancher | — | `ec-rancher-01` 10.10.30.40 *(proposed)* | Rancher's own single-node cluster |
+| NetBird gateway (routing peer) | `gw-01` 10.10.10.30 *(proposed)* | `ec-gw-01` 10.10.31.30 (tier `edge`) | advertises the site's node subnet to the other site ([ideas §2](ideas.md#2-cross-site-connectivity-netbird)) |
+| Rancher | — | `ec-rancher-01` 10.10.31.40 (tier `mgmt`) | Rancher's own single-node cluster |
 
 ## Homelab nodes
 
@@ -33,16 +34,37 @@ Proxmox bridge network 10.10.10.0/24, NIC `ens18` on every node. All IPs are sta
 | worker-01 | RKE2 agent | 10.10.10.20 |
 | worker-02 | RKE2 agent | 10.10.10.21 |
 
-Masters use `.10–.19`, workers `.20–.29`, infrastructure VMs (gateway, Rancher) `.30–.49`. EduCloud uses the same scheme on 10.10.30.0/24 with an `ec-` prefix, so the two clusters are not confused in shared dashboards.
+Masters use `.10–.19`, workers `.20–.29`, infrastructure VMs (gateway, Rancher) `.30–.49`. EduCloud uses the same scheme with an `ec-` prefix, so the two clusters are not confused in shared dashboards; there the gateway and Rancher sit in their own small subnets (`.31.30`, `.31.40`, see below).
 
-## EduCloud nodes (proposed)
+## EduCloud network and VMs
 
-| Hostname | Role | IP |
+EduCloud runs Apache CloudStack. The site is one **VPC** (10.10.30.0/23) with one virtual router (VR) and three **tiers** (subnets), each behind its own **network ACL**: deny by default in both directions, then only the listed traffic. Traffic between VMs in the same tier does not pass the VR and is not filtered. Chosen on 2026-11-14 over a plain isolated network (whose EduCloud offerings can only *block* named egress, not allow it) and a single-tier VPC (where the gateway's and Rancher's rules would apply to every node). Code: `opentofu/educloud/network.tf`.
+
+| Tier | Subnet | VR / gateway | Holds |
+|---|---|---|---|
+| `nodes` | 10.10.30.0/24 | 10.10.30.1 | masters, workers, API VIP, LoadBalancer pool |
+| `edge` | 10.10.31.16/28 | 10.10.31.17 | `ec-gw-01`: SSH jump host now, NetBird routing peer later |
+| `mgmt` | 10.10.31.32/28 | 10.10.31.33 | `ec-rancher-01` |
+| *free* | rest of 10.10.31.0/24 | | room for more /28 tiers |
+
+| Hostname | Role | Tier | IP |
+|---|---|---|---|
+| `ec-master-01` … `03` | RKE2 server, provisioned by Rancher | `nodes` | 10.10.30.10 – .12 |
+| `ec-worker-01`, `02` | RKE2 agent, provisioned by Rancher | `nodes` | 10.10.30.20, .21 |
+| `ec-gw-01` | SSH jump host; later the NetBird routing peer | `edge` | 10.10.31.30 |
+| `ec-rancher-01` | Rancher (single-node cluster) | `mgmt` | 10.10.31.40 |
+
+What the ACLs allow (everything else is denied):
+
+| Tier | In | Out |
 |---|---|---|
-| ec-master-01 … 03 | RKE2 server, provisioned by Rancher | 10.10.30.10 – .12 |
-| ec-worker-01, 02 | RKE2 agent, provisioned by Rancher | 10.10.30.20, .21 |
-| ec-gw-01 | NetBird routing peer | 10.10.30.30 |
-| ec-rancher-01 | Rancher (single-node cluster) | 10.10.30.40 |
+| `nodes` | 22 and 6443 from `edge`; ICMP from the VPC | DNS to the VR; 80, 443, 123/udp, ICMP to anywhere |
+| `edge` | 22 from the admin's public IPs (`admin_cidrs`, kept outside the repo); ICMP from the VPC | DNS to the VR; 80, 443, 123/udp, ICMP to anywhere; 22 to the VPC; 6443 to `nodes` |
+| `mgmt` | 443 from `nodes` and `edge`; 22 from `edge`; ICMP from the VPC | DNS to the VR; 80, 443, 123/udp, ICMP to anywhere |
+
+Admin access until NetBird is up: one port forward (TCP 22) on a VPC public IP to `ec-gw-01`, allowed only from `admin_cidrs`. Every other VM is reached through it (`ssh -J`), and the Rancher UI and the Kubernetes API through SSH tunnels. The port forward is removed once NetBird works.
+
+Later, with NetBird: a VPC static route sends 10.10.10.0/24 to `ec-gw-01` (`nexthop`, CloudStack 4.22+), so EduCloud nodes need no static routes of their own; the ACLs then get rules for the cross-site ports below.
 
 DNS: Homelab has no local DNS server, so nodes reach the API through the VIP's IP. The name `api.hl.home.arpa` still goes on the API certificate (RKE2 `tls-san`), so a DNS record can be added later without reissuing certificates. Until then, a workstation can use it through an `/etc/hosts` entry. `home.arpa` is the domain reserved for home networks ([RFC 8375](https://www.rfc-editor.org/rfc/rfc8375)).
 
@@ -67,7 +89,7 @@ Checked 2026-11-06: ufw is disabled on all nodes (`ENABLED=no`). Probing TCP 644
 
 ## Cross-site traffic
 
-Neither site opens an inbound port: the NetBird gateways only dial out, to NetBird's control server and to each other. The NetBird access policy (deny by default) lets only these through:
+Once NetBird is up, neither site opens an inbound port (the temporary SSH port forward at EduCloud is removed): the NetBird gateways only dial out, to NetBird's control server and to each other. The NetBird access policy (deny by default) lets only these through:
 
 | Port | Proto | From → To | Purpose |
 |---|---|---|---|
@@ -83,3 +105,5 @@ Neither site opens an inbound port: the NetBird gateways only dial out, to NetBi
 | VIP, API hostname, CIDRs, NIC name, Cilium cluster name / ID | `ansible/inventory/homelab/group_vars/all.yml`, this file |
 | RKE2 and kube-vip versions, node region label | `ansible/inventory/homelab/group_vars/all.yml` |
 | Gateway, DNS servers | the nodes' own network config (not managed by Ansible), this file |
+| EduCloud VPC, tiers, gateways, ACL rules | `opentofu/educloud/network.tf`, this file |
+| EduCloud admin source IPs | `TF_VAR_admin_cidrs` in `~/.config/educloud/cloudstack.env` (not in the repo) |
