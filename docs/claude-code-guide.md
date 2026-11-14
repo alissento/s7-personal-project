@@ -45,6 +45,10 @@ When the same setting is in several places, the more specific one wins: local > 
 | [.claude/settings.json](../.claude/settings.json) | **allow** without prompting: read-only commands (`kubectl get/describe/logs`, `git diff/log`, `yamllint`, `helm template`). **ask** every time: `kubectl apply/delete/edit/exec`, `helm install/upgrade`, `ssh`, `scp`, `git push`. **deny**: reading token files and kubeconfigs, `kubectl get secret(s)` |
 | [.claude/agents/security-reviewer.md](../.claude/agents/security-reviewer.md) | Reviews configs and manifests against CIS, NSA/CISA guidance and the project's zero-trust goals. Reports only, never edits. |
 | [.claude/agents/research-scout.md](../.claude/agents/research-scout.md) | DOT "Library" research: compares tools from official sources, returns a table, a recommendation and dated sources. Runs on Sonnet, which costs less. |
+| [.claude/agents/network-engineer.md](../.claude/agents/network-engineer.md) | NetBird link, routes, Cilium networking, Rancher connectivity. Writes Ansible/config, never changes live systems. |
+| [.claude/agents/zero-trust-engineer.md](../.claude/agents/zero-trust-engineer.md) | Hardening phase: network policies, mTLS, Kyverno, RBAC, secrets, runtime rules, plus the attack tests that prove them. |
+| [.claude/agents/dr-engineer.md](../.claude/agents/dr-engineer.md) | Backups, database replication, failover runbooks and automation, RTO/RPO measurement. |
+| [.claude/agents/bank-app-builder.md](../.claude/agents/bank-app-builder.md) | The dummy banking app under `apps/bank/`: adapted Bank of Anthos that passes the CIS profile, with CloudNativePG and a load generator. |
 | [.claude/skills/adr/SKILL.md](../.claude/skills/adr/SKILL.md) | `/adr` — writes an Architecture Decision Record into `docs/adr/` |
 
 > Permission rules are a seatbelt, not a sandbox. `deny Read(./**/agent-token)` blocks the Read tool, but `cat agent-token` goes through Bash, a different tool. The real protection for clusters is giving Claude credentials that *can't* do damage — see section 7.
@@ -175,6 +179,6 @@ Keep the admin kubeconfig for yourself. When Claude proposes a change, it writes
 
 1. *"Use the security-reviewer agent to review ansible/"*
 2. `/adr` *record the decision to use Cilium with kube-proxy replacement on the Homelab cluster*
-3. *"Use the research-scout agent to compare WireGuard, NetBird and Headscale for linking Homelab and Netlab, and write it to docs/research/vpn.md"*
-4. Two agents in parallel: *"In parallel: research-scout on Talos vs kubeadm for the Netlab cluster, and security-reviewer on ansible/"*
-5. Create your own agent with `/agents` — for example an `ansible-writer` that turns `prepare-node.sh` into an Ansible role.
+3. *"Use the research-scout agent to compare Tailscale, NetBird and OpenZiti for linking the sites, and write it to docs/research/site-link.md"*
+4. Two agents in parallel: *"In parallel: research-scout on Fleet vs Argo CD with Rancher, and security-reviewer on ansible/"*
+5. Create your own agent with `/agents` — for example an `ansible-writer` that drafts new tasks for the roles in `ansible/`.

@@ -1,0 +1,4 @@
+# Managed by Ansible (roles/rke2). Manual changes are overwritten.
+# Goes on every master except the first. RKE2 reads config.yaml first, then config.yaml.d/*.yaml,
+# so this adds one key: join the existing cluster instead of creating a new one.
+server: https://{{ rke2_api_vip }}:9345      # kube-vip VIP, RKE2 supervisor port

@@ -1,0 +1,81 @@
+---
+# CIS Kubernetes Benchmark scan with kube-bench, run on the nodes themselves.
+#   ansible-playbook cis-scan.yml -K
+# Only change to the nodes: kube-bench is unpacked into /opt. Results are saved on this workstation in
+# docs/lab/cis/<date>/ (one .txt to read, one .json for numbers), as evidence for the report.
+# Run it on the fresh cluster (baseline) and again after each hardening step, then compare the totals.
+- name: CIS scan with kube-bench
+  hosts: all
+  become: true
+  vars:
+    kube_bench_version: "0.16.0"          # latest release, checked 2026-11-14
+    kube_bench_benchmark: rke2-cis-1.9    # newest RKE2 profile in that release; it predates Kubernetes 1.36
+    kube_bench_url: "https://github.com/aquasecurity/kube-bench/releases/download/v{{ kube_bench_version }}"
+    kube_bench_dir: "/opt/kube-bench-{{ kube_bench_version }}"
+    kube_bench_report_dir: "{{ playbook_dir }}/../docs/lab/cis/{{ now(fmt='%Y-%m-%d') }}"
+    # Masters: control plane, etcd and their own kubelet. Workers: kubelet only. The cluster-wide
+    # "policies" section (RBAC, Pod Security, network policies) is checked once, on the first master.
+    kube_bench_targets: >-
+      {{ 'node' if rke2_type == 'agent'
+         else 'master,etcd,controlplane,node' + (',policies' if inventory_hostname == groups['masters'][0] else '') }}
+  tasks:
+    - name: Download kube-bench (checked against the release's checksum file)
+      ansible.builtin.get_url:
+        url: "{{ kube_bench_url }}/kube-bench_{{ kube_bench_version }}_linux_amd64.tar.gz"
+        checksum: "sha256:{{ kube_bench_url }}/kube-bench_{{ kube_bench_version }}_checksums.txt"
+        dest: "/tmp/kube-bench_{{ kube_bench_version }}.tar.gz"
+        mode: "0644"
+
+    - name: Create the kube-bench folder
+      ansible.builtin.file:
+        path: "{{ kube_bench_dir }}"
+        state: directory
+        owner: root
+        group: root
+        mode: "0755"
+
+    - name: Unpack kube-bench (binary + benchmark definitions in cfg/)
+      ansible.builtin.unarchive:
+        src: "/tmp/kube-bench_{{ kube_bench_version }}.tar.gz"
+        dest: "{{ kube_bench_dir }}"
+        remote_src: true
+        creates: "{{ kube_bench_dir }}/kube-bench"
+
+    # Run twice: once readable, once as JSON. Both take seconds. The policies checks call kubectl.
+    - name: Run the benchmark
+      ansible.builtin.command:
+        cmd: >-
+          {{ kube_bench_dir }}/kube-bench run --config-dir {{ kube_bench_dir }}/cfg
+          --benchmark {{ kube_bench_benchmark }} --targets {{ kube_bench_targets }} {{ item }}
+      environment:
+        KUBECONFIG: /etc/rancher/rke2/rke2.yaml
+        PATH: "/var/lib/rancher/rke2/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin"
+      loop:
+        - ""
+        - "--json"
+      register: kube_bench_runs
+      changed_when: false
+
+    - name: Create the report folder on this workstation
+      ansible.builtin.file:
+        path: "{{ kube_bench_report_dir }}"
+        state: directory
+        mode: "0755"
+      delegate_to: localhost
+      become: false
+      run_once: true
+
+    - name: Save the results on this workstation
+      ansible.builtin.copy:
+        content: "{{ item.stdout }}\n"
+        dest: "{{ kube_bench_report_dir }}/{{ inventory_hostname }}.{{ 'json' if item.item == '--json' else 'txt' }}"
+        mode: "0644"
+      loop: "{{ kube_bench_runs.results }}"
+      loop_control:
+        label: "{{ inventory_hostname }}.{{ 'json' if item.item == '--json' else 'txt' }}"
+      delegate_to: localhost
+      become: false
+
+    - name: Show the totals
+      ansible.builtin.debug:
+        msg: "{{ (kube_bench_runs.results[1].stdout | from_json).Totals | default('see the report files') }}"

@@ -1,6 +1,41 @@
 ---
-- name: Prepare all nodes
+- name: Prepare all nodes and install RKE2
   hosts: all
   become: true
   roles:
     - common
+    - rke2
+
+# Starting is ordered, so it lives in its own plays. Each waits until its node is Ready before the next starts.
+# First start of the first master only:  ansible-playbook site.yml -K --tags rke2-start --limit master-01
+- name: Start the first master (creates the cluster)
+  hosts: masters[0]
+  become: true
+  tags: rke2-start
+  tasks:
+    - name: Start RKE2
+      ansible.builtin.import_role:
+        name: rke2
+        tasks_from: start.yml
+
+- name: Join the other masters, one at a time
+  hosts: masters[1:]
+  become: true
+  serial: 1
+  tags: rke2-start
+  tasks:
+    - name: Start RKE2
+      ansible.builtin.import_role:
+        name: rke2
+        tasks_from: start.yml
+
+- name: Join the workers, one at a time
+  hosts: workers
+  become: true
+  serial: 1
+  tags: rke2-start
+  tasks:
+    - name: Start RKE2
+      ansible.builtin.import_role:
+        name: rke2
+        tasks_from: start.yml

@@ -1,0 +1,44 @@
+---
+# Starts RKE2 and waits until this node is part of the cluster. Not part of the role's main.yml:
+# site.yml runs it in order, one node at a time: first master (creates the cluster), the other masters
+# (adding etcd members one by one keeps quorum safe), then the workers.
+- name: Start RKE2 and enable it at boot (the first start downloads images and takes a few minutes)
+  ansible.builtin.systemd_service:
+    name: "rke2-{{ rke2_type }}"
+    state: started
+    enabled: true
+
+# The other nodes join through the VIP, so it must answer before they start.
+- name: Wait for the API VIP (kube-vip comes up after Cilium)
+  ansible.builtin.wait_for:
+    host: "{{ rke2_api_vip }}"
+    port: 9345
+    timeout: 600
+  when:
+    - inventory_hostname == groups['masters'][0]
+    - not ansible_check_mode
+
+# Asked on the first master, which has the admin kubeconfig.
+- name: Wait until this node is Ready
+  ansible.builtin.command: >-
+    /var/lib/rancher/rke2/bin/kubectl --kubeconfig /etc/rancher/rke2/rke2.yaml
+    get node {{ inventory_hostname }} -o jsonpath='{.status.conditions[?(@.type=="Ready")].status}'
+  delegate_to: "{{ groups['masters'][0] }}"
+  register: rke2_node_ready
+  until: rke2_node_ready.stdout == 'True'
+  retries: 60   # up to 10 minutes; the node object only appears once it has registered
+  delay: 10
+  changed_when: false
+  when: not ansible_check_mode
+
+# The kubelet may not set node-role labels on itself, so workers get theirs from the API.
+- name: Label workers with the worker role
+  ansible.builtin.command: >-
+    /var/lib/rancher/rke2/bin/kubectl --kubeconfig /etc/rancher/rke2/rke2.yaml
+    label node {{ inventory_hostname }} node-role.kubernetes.io/worker=true --overwrite
+  delegate_to: "{{ groups['masters'][0] }}"
+  register: rke2_worker_label
+  changed_when: "'not labeled' not in rke2_worker_label.stdout"
+  when:
+    - rke2_type == 'agent'
+    - not ansible_check_mode

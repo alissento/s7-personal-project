@@ -2,7 +2,7 @@
 
 Semester 7 personal project. This repo holds the Infrastructure as Code and GitOps manifests for two Kubernetes clusters on two sites, hardened with zero-trust principles, with automated disaster recovery between them.
 
-> **Status:** Phase 1 — building the Homelab cluster (RKE2, 3 masters + 2 workers, installed with Ansible). See the [roadmap](#roadmap).
+> **Status:** Phase 1 — building the skeleton by 2026-11-19: both RKE2 clusters, Rancher managing both, and the NetBird link between the sites. Homelab cluster done (2026-11-14); EduCloud next. See the [roadmap](#roadmap).
 
 ## Research question
 
@@ -25,13 +25,17 @@ flowchart LR
         HLW["2 × worker<br/>banking app · PostgreSQL primary"]
         HLCP --- HLW
     end
-    subgraph NL["Netlab — secondary / DR (proposed)"]
+    subgraph NL["EduCloud — secondary / DR (proposed)"]
         direction TB
-        NLCP["Kubernetes control plane<br/>second distribution (TBD)"]
-        NLW["workers<br/>standby app · PostgreSQL replica"]
+        NLCP["RKE2 control plane<br/>3 × master, provisioned by Rancher"]
+        NLW["2 × worker<br/>standby app · PostgreSQL replica"]
         NLCP --- NLW
     end
-    HL <-->|"site-to-site VPN<br/>Cilium Cluster Mesh"| NL
+    HL <-->|"NetBird link (WireGuard)<br/>gateway ↔ gateway<br/>TCP 443 · 6443 · 5432 only"| NL
+    NB(["NetBird control server<br/>keys + policies, no traffic"]) -.- HL
+    NB -.- NL
+    RANCHER["Rancher<br/>own VM at EduCloud"] -.->|manages| HL
+    RANCHER -.->|"provisions + manages"| NL
     GIT[("GitHub<br/>IaC + GitOps")] -.->|sync| HL
     GIT -.->|sync| NL
     S3[("Off-site<br/>object storage")]
@@ -39,11 +43,12 @@ flowchart LR
     S3 -->|restore| NL
 ```
 
-| | Homelab | Netlab |
+| | Homelab | EduCloud |
 |---|---|---|
-| Location | Poland | Netlab |
+| Location | Poland | school cloud (previously Netlab) |
 | Hypervisor | Proxmox VE | TBD |
-| Kubernetes | RKE2 v1.36 — 3 masters, 2 workers | TBD — [options](docs/ideas.md#1-second-cluster-a-different-enterprise-approach) |
+| Kubernetes | RKE2 v1.36 — 3 masters, 2 workers | RKE2 — 3 masters, 2 workers |
+| Deployment approach | Ansible installs RKE2, cluster imported into Rancher | [Rancher provisions RKE2](docs/ideas.md#1-two-rke2-clusters-two-deployment-approaches) (custom cluster) |
 | Role | primary (proposed) | secondary / DR (proposed) |
 
 ## Stack
@@ -52,10 +57,13 @@ flowchart LR
 |---|---|---|
 | Node OS | Ubuntu 26.04 LTS | decided |
 | Kubernetes (Homelab) | RKE2 v1.36.5, CIS profile | decided |
-| CNI | Cilium with kube-proxy replacement + Hubble | in config, to review |
-| API high availability | kube-vip (ARP) | in config, to review |
-| Ingress | Traefik (RKE2 default) | in config, to review |
-| VPN, mTLS, secrets, GitOps, DR, storage, observability | — | open — see [docs/ideas.md](docs/ideas.md) |
+| CNI | Cilium with kube-proxy replacement + Hubble | in the RKE2 role, to review |
+| API high availability | kube-vip (ARP) | in the RKE2 role, to review |
+| Ingress | Traefik (RKE2 default) | in the RKE2 role, to review |
+| Kubernetes (EduCloud) | RKE2 | decided 2026-11-14 |
+| Cross-site connectivity | NetBird: one gateway per site, deny-by-default policy | decided 2026-11-14 |
+| Central management | Rancher, own VM at EduCloud | decided 2026-11-14 |
+| mTLS, secrets, GitOps, DR, storage, observability | — | open — see [docs/ideas.md](docs/ideas.md) |
 
 ## Repository layout
 
@@ -63,7 +71,7 @@ flowchart LR
 .
 ├── docs/             project plan, network plan, ideas & roadmap, Claude Code guide
 ├── ansible/          node preparation and RKE2 install (in progress)
-├── terraform/        (planned) Proxmox VMs with OpenTofu
+├── opentofu/         (planned) EduCloud VMs via the CloudStack API; later Homelab's Proxmox VMs
 ├── clusters/         (planned) GitOps entry point per cluster
 ├── platform/         (planned) shared platform services: policies, observability, secrets
 └── apps/             (planned) the dummy banking application
@@ -72,7 +80,17 @@ flowchart LR
 ## Getting started
 
 1. Read [docs/network-plan.md](docs/network-plan.md) and replace the example IPs and hostnames.
-2. Build the Homelab cluster with the playbooks in [ansible/](ansible/) (in progress).
+2. Build the Homelab cluster with the playbooks in [ansible/](ansible/) (in progress). [ansible/README.md](ansible/README.md) explains every file. Run these from `ansible/`:
+
+   ```bash
+   ansible-galaxy collection install -r requirements.yml   # once, on a new workstation
+   ansible-lint && yamllint .                              # check before running
+   ansible-playbook site.yml -K                            # prepare the nodes; safe to repeat
+   ansible-playbook upgrade.yml -K                         # OS upgrades and reboots, only when you mean to
+   ansible-playbook workstation.yml -K                     # kubectl and kubeconfig on this machine, once the cluster runs
+   ```
+
+   `upgrade.yml` is separate so that `site.yml` can never reboot a node. It has no drain step yet, so don't use it on a live cluster.
 
 ## Roadmap
 
@@ -80,14 +98,15 @@ Phases follow the timeline in the project plan.
 
 - **Weeks 1–7 — Research and design**
   - [x] Project plan
-  - [ ] Product analysis: second-site distribution, VPN, mTLS, secrets, DR tooling
+  - [ ] Product analysis: site link (Tailscale vs NetBird vs OpenZiti), mTLS, secrets, DR tooling
   - [ ] Architecture diagrams and network plan
   - [ ] Decisions recorded as ADRs
 - **Weeks 4–9 — Two working clusters**
-  - [ ] Homelab RKE2 cluster (3 + 2) — *in progress*
-  - [ ] Baseline CIS scan (kube-bench)
-  - [ ] Netlab cluster
-  - [ ] Site-to-site VPN + Cilium Cluster Mesh
+  - [x] Homelab RKE2 cluster (3 + 2) — Ansible, VIP failover tested
+  - [x] Baseline CIS scan (kube-bench) — rerun before hardening
+  - [ ] Rancher on its own VM at EduCloud; Homelab imported
+  - [ ] EduCloud RKE2 cluster, provisioned by Rancher
+  - [ ] NetBird link between the sites
   - [ ] GitOps bootstrap on both clusters
   - [ ] VMs and node setup as code (OpenTofu + Ansible)
 - **Weeks 10–12 — Hardening and test application**
@@ -119,7 +138,7 @@ The research follows the DOT framework:
 
 ## Secrets
 
-Nothing secret is ever committed. RKE2 join tokens are plain files on the nodes (`token-file`), kubeconfigs stay in `~/.kube`, and [.gitignore](.gitignore) blocks the usual suspects. Encrypted secrets (SOPS) and a secrets manager come in the hardening phase.
+Nothing secret is ever committed. RKE2 join tokens are plain files on the nodes (`token-file`), kept on the workstation in the gitignored `ansible/secrets/` folder, kubeconfigs stay in `~/.kube`, and [.gitignore](.gitignore) blocks the usual suspects. Encrypted secrets (SOPS) and a secrets manager come in the hardening phase.
 
 ## Working with Claude Code
 

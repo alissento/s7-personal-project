@@ -1,0 +1,15 @@
+---
+# Applies to all YAML in this repo, and ansible-lint reads it too.
+extends: default
+rules:
+  line-length:
+    max: 120              # inline comments explain each setting; the default of 80 cuts them short
+  # The next three are the values ansible-lint requires of a yamllint config.
+  comments:
+    min-spaces-from-content: 1
+  comments-indentation: false
+  braces:
+    max-spaces-inside: 1
+  octal-values:
+    forbid-implicit-octal: true
+    forbid-explicit-octal: true

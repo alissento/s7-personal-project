@@ -1,0 +1,21 @@
+---
+# With the CIS profile, the kubelet refuses to start unless these match what it expects.
+# The file comes with RKE2, so this has to run after the install.
+- name: Apply the CIS kernel settings shipped with RKE2
+  ansible.builtin.copy:
+    src: /usr/local/share/rke2/rke2-cis-sysctl.conf
+    dest: /etc/sysctl.d/60-rke2-cis.conf
+    remote_src: true
+    owner: root
+    group: root
+    mode: "0644"
+  notify: Reload sysctl
+
+- name: Raise the inotify limits
+  ansible.builtin.copy:
+    src: 61-k8s-inotify.conf
+    dest: /etc/sysctl.d/61-k8s-inotify.conf
+    owner: root
+    group: root
+    mode: "0644"
+  notify: Reload sysctl

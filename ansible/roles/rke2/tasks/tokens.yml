@@ -1,0 +1,41 @@
+---
+# The two join tokens are created once, by hand, in ansible/secrets/<site>/ on the workstation (gitignored;
+# see ansible/README.md, section 7). They are never generated here: a fresh checkout without that folder would
+# otherwise push new tokens to a running cluster. Restoring an etcd snapshot needs the original cluster token.
+- name: Check the join tokens exist on this workstation
+  ansible.builtin.stat:
+    path: "{{ rke2_token_dir }}/{{ item }}"
+  loop:
+    - cluster-token
+    - agent-token
+  register: rke2_token_files
+  delegate_to: localhost
+  become: false
+  run_once: true
+
+- name: Stop if a token is missing
+  ansible.builtin.assert:
+    that: rke2_token_files.results | selectattr('stat.exists') | list | length == 2
+    fail_msg: "Join tokens missing in {{ rke2_token_dir }}: create them first (ansible/README.md, section 7, rke2-tokens)"
+    quiet: true
+  run_once: true
+
+# diff: false keeps the token out of the output when running with --diff.
+- name: Copy the cluster token (masters join with it)
+  ansible.builtin.copy:
+    src: "{{ rke2_token_dir }}/cluster-token"
+    dest: /etc/rancher/rke2/cluster-token
+    owner: root
+    group: root
+    mode: "0600"
+  diff: false
+  when: rke2_type == 'server'
+
+- name: Copy the agent token (workers join with it; masters need it to accept them)
+  ansible.builtin.copy:
+    src: "{{ rke2_token_dir }}/agent-token"
+    dest: /etc/rancher/rke2/agent-token
+    owner: root
+    group: root
+    mode: "0600"
+  diff: false

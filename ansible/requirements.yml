@@ -1,0 +1,6 @@
+---
+# Collections the playbooks need that are not part of ansible-core.
+# Install with:  ansible-galaxy collection install -r requirements.yml
+collections:
+  - name: community.general   # lvol module, used by roles/common/tasks/disk.yml
+    version: 13.5.1           # checked 2026-11-06

@@ -1,0 +1,41 @@
+# Managed by Ansible (roles/rke2). Manual changes are overwritten.
+# RKE2 refuses to join a server whose cluster-wide settings differ from the existing servers,
+# so every master gets this same file. Values come from group_vars.
+
+# --- Join secrets ---------------------------------------------------------------
+token-file: /etc/rancher/rke2/cluster-token       # servers join with this
+agent-token-file: /etc/rancher/rke2/agent-token   # workers join with this; it cannot join as a server
+
+# --- API endpoint ---------------------------------------------------------------
+# Extra names on the API server certificate. Node IPs and hostnames are added automatically.
+tls-san:
+  - {{ rke2_api_vip }}
+  - {{ rke2_api_hostname }}
+write-kubeconfig-mode: "0600"
+
+# --- Networking -----------------------------------------------------------------
+cni: cilium
+disable-kube-proxy: true        # Cilium replaces kube-proxy, see rke2-cilium-config.yaml
+cluster-cidr: {{ rke2_cluster_cidr }}
+service-cidr: {{ rke2_service_cidr }}
+cluster-dns: {{ rke2_cluster_dns }}
+ingress-controller: traefik     # default for new clusters since v1.36 (ingress-nginx is end-of-life)
+
+# --- Hardening ------------------------------------------------------------------
+# CIS benchmark mode. Enforces Pod Security "restricted" outside system namespaces, adds default
+# NetworkPolicies to kube-system/default/kube-public, and refuses to start unless the host has the
+# etcd user and CIS kernel parameters (tasks/install.yml and tasks/sysctl.yml set up both).
+profile: cis
+secrets-encryption-provider: secretbox   # Kubernetes docs advise against the aescbc default
+
+# --- Control-plane placement ----------------------------------------------------
+# Keep application pods off the masters. Only critical add-ons (Cilium, CoreDNS, kube-vip) tolerate this.
+node-taint:
+  - CriticalAddonsOnly=true:NoExecute
+node-label:
+  - topology.kubernetes.io/region={{ rke2_node_region }}
+
+# --- etcd backups (disaster recovery) -------------------------------------------
+# Local only for now. Off-site copies to S3 come in the DR phase.
+etcd-snapshot-schedule-cron: "0 */6 * * *"   # every 6 hours
+etcd-snapshot-retention: 28                  # 7 days of local snapshots on each master
