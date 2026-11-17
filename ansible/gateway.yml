@@ -4,5 +4,12 @@
 - name: Set up the NetBird routing peer
   hosts: gateways
   become: true
+  # DNS first (only where common_dns_servers is set): NetBird's install and join download from the internet.
+  pre_tasks:
+    - name: DNS
+      ansible.builtin.import_role:
+        name: common
+        tasks_from: dns.yml
+      tags: dns
   roles:
     - netbird

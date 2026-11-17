@@ -15,7 +15,8 @@
     port: 9345
     timeout: 600
   when:
-    - inventory_hostname == groups['masters'][0]
+    - inventory_hostname == rke2_init_server
+    - rke2_api_vip | length > 0
     - not ansible_check_mode
 
 # Asked on the first master, which has the admin kubeconfig.
@@ -23,7 +24,7 @@
   ansible.builtin.command: >-
     /var/lib/rancher/rke2/bin/kubectl --kubeconfig /etc/rancher/rke2/rke2.yaml
     get node {{ inventory_hostname }} -o jsonpath='{.status.conditions[?(@.type=="Ready")].status}'
-  delegate_to: "{{ groups['masters'][0] }}"
+  delegate_to: "{{ rke2_init_server }}"
   register: rke2_node_ready
   until: rke2_node_ready.stdout == 'True'
   retries: 60   # up to 10 minutes; the node object only appears once it has registered
@@ -36,7 +37,7 @@
   ansible.builtin.command: >-
     /var/lib/rancher/rke2/bin/kubectl --kubeconfig /etc/rancher/rke2/rke2.yaml
     label node {{ inventory_hostname }} node-role.kubernetes.io/worker=true --overwrite
-  delegate_to: "{{ groups['masters'][0] }}"
+  delegate_to: "{{ rke2_init_server }}"
   register: rke2_worker_label
   changed_when: "'not labeled' not in rke2_worker_label.stdout"
   when:

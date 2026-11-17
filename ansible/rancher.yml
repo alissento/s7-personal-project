@@ -1,0 +1,31 @@
+---
+# The Rancher server: a single-node RKE2 cluster on ec-rancher-01, with cert-manager and Rancher on top.
+# Rancher always runs on Kubernetes; why its own small cluster: docs/ideas.md section 5. Details: README section 9.
+#
+#   ansible-playbook -i inventory/educloud rancher.yml -K
+#
+# Before the first run: create the cluster's join tokens in secrets/rancher/ (README, section 9).
+# Safe to repeat: every step checks the current state first.
+- name: Prepare the Rancher VM and install RKE2
+  hosts: rancher
+  become: true
+  roles:
+    - common
+    - rke2
+
+- name: Start RKE2 (creates the single-node cluster)
+  hosts: rancher
+  become: true
+  tags: rke2-start
+  tasks:
+    - name: Start RKE2
+      ansible.builtin.import_role:
+        name: rke2
+        tasks_from: start.yml
+
+- name: Install cert-manager and Rancher
+  hosts: rancher
+  become: true
+  tags: rancher
+  roles:
+    - rancher

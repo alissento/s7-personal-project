@@ -1,0 +1,14 @@
+# Managed by Ansible (roles/common, tasks/dns.yml). Manual changes are overwritten.
+# Merged into the stanza cloud-init wrote for this NIC (50-cloud-init.yaml): keep DHCP for the address,
+# but ignore the DNS servers DHCP hands out and use these instead.
+network:
+  version: 2
+  ethernets:
+    {{ rke2_node_interface }}:
+      dhcp4-overrides:
+        use-dns: false
+      nameservers:
+        addresses:
+{% for server in common_dns_servers %}
+          - {{ server }}
+{% endfor %}

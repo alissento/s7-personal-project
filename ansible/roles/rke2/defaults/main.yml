@@ -1,0 +1,25 @@
+---
+# Defaults for the rke2 role. They describe the Homelab layout (3 masters behind a kube-vip VIP);
+# a site or cluster overrides them in its group_vars. The Rancher cluster at EduCloud is the example
+# of a single-node cluster: inventory/educloud/group_vars/rancher.yml.
+
+# The master that creates the cluster. Every other master joins it, and start.yml asks it whether a node
+# is Ready, since it has the admin kubeconfig.
+rke2_init_server: "{{ groups['masters'][0] }}"
+
+# Shared API address held by kube-vip. Empty means no VIP and no kube-vip: right for a single-node cluster,
+# where there is no other master to fail over to and the node's own IP is the API address.
+rke2_api_vip: ""
+rke2_api_hostname: ""   # extra name on the API certificate; empty adds none
+
+# Taint the masters so only system add-ons run there. Must be false on a single-node cluster, or ordinary
+# workloads (such as Rancher) have nowhere to run.
+rke2_server_taint: true
+
+# Pod Security Admission exemptions for Rancher's namespaces. Only for the cluster that runs the Rancher
+# server: see templates/rancher-pss.yaml.j2.
+rke2_psa_exempt_rancher: false
+
+# Number of Cilium operator replicas. Unset keeps the chart's default (2, on different nodes); a
+# single-node cluster sets 1, or the second replica stays Pending forever.
+# rke2_cilium_operator_replicas: 1

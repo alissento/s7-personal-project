@@ -10,6 +10,15 @@ ansible_ssh_private_key_file: ~/.ssh/educloud-ansible
 # (checked on ec-gw-01, 2026-11-17).
 ansible_become_exe: sudo.ws
 
+# NIC name on every EduCloud VM (cloud image on CloudStack KVM). The common role checks the planned IP is on it.
+rke2_node_interface: ens3
+
+# DNS (roles/common, tasks/dns.yml): Cloudflare instead of the VPC router, whose upstream (the school's
+# resolvers) returned stale addresses for Docker Hub and Quay (2026-11-17). Must match local.public_dns
+# in opentofu/educloud/network.tf, which lets this traffic out.
+common_dns_servers: [1.1.1.1, 1.0.0.1]
+common_dns_over_tls: opportunistic
+
 # NetBird, the VPN between the sites and for admin access (role netbird).
 netbird_version: 0.83.1   # latest release, checked 2026-11-17
 netbird_setup_key_file: "{{ playbook_dir }}/secrets/educloud/netbird-setup-key"   # on the workstation, gitignored

@@ -1,0 +1,59 @@
+# Managed by Ansible (roles/rke2). Manual changes are overwritten.
+# Pod Security Admission config for the cluster that runs the Rancher server. Same rules as RKE2's CIS
+# default (restricted everywhere), plus exemptions for the namespaces Rancher's own pods run in, which do
+# not meet "restricted" (Rancher docs: "You must make namespace-level exemptions ... for Rancher components").
+#
+# Source: Rancher v2.15, "Pod Security Admission (PSA) Restricted Exemptions",
+#   https://ranchermanager.docs.rancher.com/reference-guides/rancher-security/psa-restricted-exemptions
+#   (checked 2026-11-17). Left out of that list on purpose: namespaces of products this cluster never runs
+#   (Calico, Istio, Longhorn, NeuVector, Elemental, Epinio, Gatekeeper, SR-IOV, Windows, standalone Traefik,
+#   and Rancher v1 alerting/logging). Fewer exemptions means fewer places a pod can run unrestricted.
+#   If a Rancher tool fails with "violates PodSecurity", check whether its namespace is in that list.
+apiVersion: apiserver.config.k8s.io/v1
+kind: AdmissionConfiguration
+plugins:
+  - name: PodSecurity
+    configuration:
+      apiVersion: pod-security.admission.config.k8s.io/v1
+      kind: PodSecurityConfiguration
+      defaults:
+        enforce: "restricted"
+        enforce-version: "latest"
+        audit: "restricted"
+        audit-version: "latest"
+        warn: "restricted"
+        warn-version: "latest"
+      exemptions:
+        usernames: []
+        runtimeClasses: []
+        namespaces:
+          # RKE2's own CIS default exemptions (docs.rke2.io/security/pod_security_standards)
+          - kube-system
+          - compliance-operator-system
+          - tigera-operator
+          # Rancher server, Fleet (GitOps), Cluster API provisioning, UI extensions
+          - cattle-system
+          - cattle-fleet-system
+          - cattle-fleet-local-system
+          - fleet-default
+          - fleet-local
+          - cattle-global-data
+          - cattle-global-nt
+          - cattle-impersonation-system
+          - cattle-capi-system
+          - cattle-provisioning-capi-system
+          - cattle-turtles-system
+          - cattle-ui-plugin-system
+          - cattle-scc-system
+          - cattle-csp-adapter-system
+          # Rancher tools that may run on this cluster: backups (DR), monitoring, logging, compliance scans
+          - cattle-resources-system
+          - cattle-monitoring-system
+          - rancher-alerting-drivers
+          - cattle-logging-system
+          - rancher-compliance-system
+          - cis-operator-system
+          # cert-manager, which issues Rancher's certificate
+          - cert-manager
+          - kube-node-lease
+          - kube-public

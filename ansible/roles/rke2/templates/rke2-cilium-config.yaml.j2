@@ -27,6 +27,9 @@ spec:
     # for its CRDs and never gets ready. Setting tolerations replaces the chart's list, so the defaults
     # are repeated here with CriticalAddonsOnly added.
     operator:
+{% if rke2_cilium_operator_replicas is defined %}
+      replicas: {{ rke2_cilium_operator_replicas }}
+{% endif %}
       tolerations:
         - key: CriticalAddonsOnly
           operator: Exists

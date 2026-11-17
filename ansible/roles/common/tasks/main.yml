@@ -5,6 +5,11 @@
   ansible.builtin.import_tasks: preflight.yml
   tags: preflight
 
+# Right after the checks: everything after it downloads something, so DNS must already work.
+- name: DNS
+  ansible.builtin.import_tasks: dns.yml
+  tags: dns
+
 - name: SSH hardening
   ansible.builtin.import_tasks: ssh.yml
   tags: ssh

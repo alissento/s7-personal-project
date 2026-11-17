@@ -1,0 +1,5 @@
+---
+# kubectl as shipped with RKE2, with the admin kubeconfig (root-only, so tasks run with become).
+rancher_kubectl: /var/lib/rancher/rke2/bin/kubectl --kubeconfig /etc/rancher/rke2/rke2.yaml
+
+# Required, from group_vars: rancher_hostname, rancher_version, rancher_cert_manager_version.

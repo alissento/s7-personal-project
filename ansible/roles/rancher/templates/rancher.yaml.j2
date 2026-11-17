@@ -1,0 +1,30 @@
+# Managed by Ansible (roles/rancher). Manual changes are overwritten.
+# The Rancher server, installed by RKE2's built-in Helm controller. Written only after cert-manager is up:
+# the chart checks for cert-manager's CRDs and fails without them.
+# Deleting this file does NOT uninstall the chart.
+---
+apiVersion: helm.cattle.io/v1
+kind: HelmChart
+metadata:
+  name: rancher
+  namespace: kube-system
+spec:
+  repo: https://releases.rancher.com/server-charts/stable
+  chart: rancher
+  version: "{{ rancher_version }}"
+  targetNamespace: cattle-system
+  createNamespace: true
+  timeout: 900s   # Rancher's first install takes several minutes
+  valuesContent: |-
+    # The URL Rancher is reached at, and that the agents of managed clusters connect to. Changing it later
+    # breaks every registered cluster, and a restore from backup must use the same one.
+    hostname: {{ rancher_hostname }}
+    # One node, so one replica (the chart's default of 3 is for a three-node cluster).
+    replicas: 1
+    # Rancher's own CA signs the certificate (through cert-manager). Browsers warn about it; agents trust
+    # it because Rancher hands them the CA.
+    ingress:
+      tls:
+        source: rancher
+    # bootstrapPassword is left empty on purpose: Rancher generates a random one and stores it in the
+    # bootstrap-secret in cattle-system, so no password is ever written to this repo or the node's disk.

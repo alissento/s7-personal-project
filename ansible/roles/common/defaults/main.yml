@@ -1,0 +1,6 @@
+---
+# DNS servers for the node (tasks/dns.yml). Empty: keep what the node's network config already uses
+# (Homelab: static 1.1.1.1 and 8.8.8.8). EduCloud sets Cloudflare in its group_vars.
+common_dns_servers: []
+# systemd-resolved's DNSOverTLS: "no", "opportunistic" or "yes". Only used when common_dns_servers is set.
+common_dns_over_tls: opportunistic

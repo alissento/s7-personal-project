@@ -1,0 +1,48 @@
+---
+# Use public resolvers instead of the ones DHCP hands out. Only where common_dns_servers is set (EduCloud):
+# the VPC router forwards to the school's resolvers, which returned stale addresses for AWS-hosted names
+# (registry-1.docker.io, quay.io), so no container image could be pulled (found 2026-11-17).
+# Homelab's nodes have static DNS in their own network config and leave the list empty.
+# Needs the matching ACL rules first (opentofu/educloud/network.tf, rules 502/512/517).
+- name: Point DNS at public resolvers
+  when: common_dns_servers | length > 0
+  block:
+    # The override below is merged into the stanza cloud-init wrote for this NIC. If that stanza had a
+    # different ID, netplan would see two definitions of one NIC, so stop instead.
+    - name: Check cloud-init's netplan config defines the NIC by name
+      ansible.builtin.command: grep -rqE '^\s+{{ rke2_node_interface }}:' /etc/netplan/ --exclude=90-dns.yaml
+      changed_when: false
+      check_mode: false
+
+    - name: Ignore DHCP's DNS servers and use the public resolvers
+      ansible.builtin.template:
+        src: 90-dns.yaml.j2
+        dest: /etc/netplan/90-dns.yaml
+        owner: root
+        group: root
+        mode: "0600"   # netplan warns about config files others can read
+      notify: Apply netplan
+
+    - name: Encrypt DNS where the resolver supports it (DNS over TLS)
+      ansible.builtin.template:
+        src: 60-dns-over-tls.conf.j2
+        dest: /etc/systemd/resolved.conf.d/60-dns-over-tls.conf
+        owner: root
+        group: root
+        mode: "0644"
+      notify: Restart systemd-resolved
+
+    # Apply now, so everything after this (apt, the RKE2 install, image pulls) already uses the new resolvers.
+    - name: Apply the DNS change now
+      ansible.builtin.meta: flush_handlers
+
+    # Proves the fix: with the stale answers, the TLS certificate does not match and this fails.
+    # 401 is Docker Hub's normal "log in first" reply.
+    - name: Check Docker Hub's registry is reached at a real address
+      ansible.builtin.uri:
+        url: https://registry-1.docker.io/v2/
+        status_code: 401
+      register: common_registry_check
+      until: common_registry_check.status == 401
+      retries: 3
+      delay: 5

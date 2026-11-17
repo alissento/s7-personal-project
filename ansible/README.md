@@ -6,6 +6,8 @@ Status on 2026-11-14: the Homelab cluster is running (3 masters + 2 workers Read
 
 Added on 2026-11-17: a first EduCloud inventory (the gateway VM only) and the `netbird` role ([section 8](#8-role-netbird-the-site-gateway)). The EduCloud VMs themselves are created by OpenTofu ([opentofu/educloud/](../opentofu/educloud/README.md)).
 
+Added on 2026-11-17 (later): the Rancher server on `ec-rancher-01`, a single-node RKE2 cluster with cert-manager and Rancher on top (`rancher.yml`, role `rancher`, [section 9](#9-role-rancher-the-management-server)). The `rke2` role now also handles single-node clusters; Homelab's rendered files are unchanged.
+
 ## Contents
 
 1. [Quick start](#1-quick-start)
@@ -16,10 +18,11 @@ Added on 2026-11-17: a first EduCloud inventory (the gateway VM only) and the `n
 6. [Role `common`: node preparation](#6-role-common-node-preparation)
 7. [Role `rke2`: install and configure](#7-role-rke2-install-and-configure)
 8. [Role `netbird`: the site gateway](#8-role-netbird-the-site-gateway)
-9. [Running parts with tags](#9-running-parts-with-tags)
-10. [What is missing](#10-what-is-missing)
-11. [Troubleshooting](#11-troubleshooting)
-12. [Sources](#12-sources)
+9. [Role `rancher`: the management server](#9-role-rancher-the-management-server)
+10. [Running parts with tags](#10-running-parts-with-tags)
+11. [What is missing](#11-what-is-missing)
+12. [Troubleshooting](#12-troubleshooting)
+13. [Sources](#13-sources)
 
 ---
 
@@ -32,7 +35,7 @@ Added on 2026-11-17: a first EduCloud inventory (the gateway VM only) and the `n
 | ansible-core 2.21+ | runs the playbooks | Ansible PPA: `sudo apt install ansible ansible-core` |
 | `community.general` collection | the `lvol` disk module | `ansible-galaxy collection install -r requirements.yml` |
 | SSH key `~/.ssh/homelab-ansible` | login to every node; password login is disabled | already on all nodes (`ssh-copy-id`) |
-| the key loaded in ssh-agent | the key has a passphrase, and Ansible connects to 5 nodes at once, so it cannot ask for it | `eval "$(ssh-agent -s)" && ssh-add ~/.ssh/homelab-ansible`, or `keychain` (see [Troubleshooting](#11-troubleshooting)) |
+| the key loaded in ssh-agent | the key has a passphrase, and Ansible connects to 5 nodes at once, so it cannot ask for it | `eval "$(ssh-agent -s)" && ssh-add ~/.ssh/homelab-ansible`, or `keychain` (see [Troubleshooting](#12-troubleshooting)) |
 | the sudo password of `nknez` | Ansible becomes root with sudo on the nodes | typed at the `BECOME password:` prompt (`-K`) |
 
 **Commands**, always run from inside `ansible/`:
@@ -82,6 +85,7 @@ ansible/
 ├── upgrade.yml                    OS upgrade and reboot, run on purpose only
 ├── workstation.yml                sets up this PC: kubectl and the admin kubeconfig
 ├── gateway.yml                    the site's NetBird gateway VM
+├── rancher.yml                    the Rancher server: single-node RKE2, cert-manager, Rancher
 ├── inventory/
 │   ├── homelab/                   WHERE and WITH WHICH VALUES
 │   │   ├── hosts.yml              the 5 machines, in groups masters / workers
@@ -90,22 +94,31 @@ ansible/
 │   │       ├── masters.yml        rke2_type: server
 │   │       └── workers.yml        rke2_type: agent
 │   └── educloud/                  the second site; chosen with -i inventory/educloud
-│       ├── hosts.yml              so far only the gateway, ec-gw-01
-│       └── group_vars/all.yml     login, sudo, NetBird version
+│       ├── hosts.yml              groups gateways (ec-gw-01) and rancher (ec-rancher-01)
+│       └── group_vars/
+│           ├── all.yml            login, sudo, NIC name, NetBird version
+│           └── rancher.yml        the Rancher cluster: ranges, single-node settings, Rancher versions
 └── roles/                         HOW: the same for every site
     ├── netbird/                   NetBird client on a gateway VM
     │   ├── tasks/                 main.yml lists: install, join
     │   ├── files/                 netbird.sources, 60-netbird-forward.conf
     │   └── handlers/              Reload sysctl
     ├── common/                    generic node preparation
-    │   ├── tasks/                 main.yml lists: preflight, ssh, disk, swap, packages
+    │   ├── defaults/              DNS servers (empty: keep the node's own)
+    │   ├── tasks/                 main.yml lists: preflight, dns, ssh, disk, swap, packages
+    │   ├── templates/             90-dns.yaml (netplan), 60-dns-over-tls.conf (systemd-resolved)
     │   ├── files/                 00-ssh-hardening.conf
-    │   └── handlers/              Restart ssh
-    └── rke2/                      everything RKE2-specific
-        ├── tasks/                 main.yml lists: install, sysctl, config, tokens
-        ├── files/                 61-k8s-inotify.conf
-        ├── templates/             config-server, config-agent, join, rke2-cilium-config, kube-vip
-        └── handlers/              Reload sysctl
+    │   └── handlers/              Restart ssh, Apply netplan, Restart systemd-resolved
+    ├── rke2/                      everything RKE2-specific
+    │   ├── defaults/              Homelab's layout (3 masters + VIP); a single-node cluster overrides it
+    │   ├── tasks/                 main.yml lists: install, sysctl, config, tokens
+    │   ├── files/                 61-k8s-inotify.conf
+    │   ├── templates/             config-server, config-agent, join, rke2-cilium-config, kube-vip, rancher-pss
+    │   └── handlers/              Reload sysctl
+    └── rancher/                   cert-manager and the Rancher server, as RKE2 HelmCharts
+        ├── defaults/              where kubectl is on the node
+        ├── tasks/                 write each chart, wait until it runs
+        └── templates/             cert-manager, rancher
 ```
 
 The split that matters: **roles say how, the inventory says where and with which values.** Roles contain no IP addresses. The EduCloud site will get its own `inventory/educloud/` and reuse the same roles; the site is then chosen with `-i inventory/educloud`.
@@ -199,6 +212,16 @@ Two plays:
 
 One play: the `netbird` role on the hosts in the `gateways` group ([section 8](#8-role-netbird-the-site-gateway)). Homelab has no gateway VM yet, so for now it is always run with `-i inventory/educloud`.
 
+### `rancher.yml`: the Rancher server
+
+Three plays on the `rancher` group (`ec-rancher-01`), always with `-i inventory/educloud`:
+
+| Play | Does |
+|---|---|
+| Prepare the Rancher VM and install RKE2 | roles `common` and `rke2`, as on Homelab, with the single-node settings from `group_vars/rancher.yml` |
+| Start RKE2 (tag `rke2-start`) | start RKE2, which creates the one-node cluster; wait until the node is Ready |
+| Install cert-manager and Rancher (tag `rancher`) | role `rancher` ([section 9](#9-role-rancher-the-management-server)) |
+
 ### `cis-scan.yml`: CIS benchmark scan
 
 Runs [kube-bench](https://github.com/aquasecurity/kube-bench) on every node against the CIS Kubernetes Benchmark for RKE2 and saves the results in `docs/lab/cis/<date>/` (a `.txt` per node to read, a `.json` for the numbers). Run it on the fresh cluster as the baseline, then after each hardening step, and compare the totals (PASS / FAIL / WARN).
@@ -228,6 +251,20 @@ Read-only checks that stop the run early when a node does not match the plan. Sa
 | the clock is NTP-synchronised (waits up to 60 s) | etcd and TLS certificates break when clocks differ |
 | ufw is off | ufw would silently block cluster ports; if it is ever turned on, open the ports in the network plan first |
 
+### `dns` (`tasks/dns.yml`, `templates/90-dns.yaml.j2`, `templates/60-dns-over-tls.conf.j2`)
+
+Only where `common_dns_servers` is set, which is EduCloud (Homelab's nodes have static DNS in their own network config). EduCloud's VPC router forwarded to resolvers that returned stale addresses for Docker Hub and Quay, so no image could be pulled ([docs/network-plan.md](../docs/network-plan.md#educloud-dns)). The tasks:
+
+| Step | Why |
+|---|---|
+| check that cloud-init's netplan file defines the NIC (`ens3`) by name | the override is merged into that definition; under another name netplan would see the NIC twice |
+| write `/etc/netplan/90-dns.yaml`: `dhcp4-overrides: use-dns: false` and the servers from `common_dns_servers` | DHCP still sets the address, but its DNS servers (the router) are ignored |
+| write `/etc/systemd/resolved.conf.d/60-dns-over-tls.conf` (`DNSOverTLS=opportunistic`) | DNS over TLS when port 853 works, plain DNS otherwise; `yes` would be stricter but stops all lookups if 853 is ever blocked |
+| apply both at once (`netplan apply`, restart systemd-resolved) | everything after this task downloads something |
+| fetch `https://registry-1.docker.io/v2/` and expect `401` | proves it worked: with the stale addresses the certificate does not match and this fails |
+
+Needs the ACL rules that let DNS out to Cloudflare (`opentofu/educloud/network.tf`, 502/512/517). It runs right after `preflight`, and `gateway.yml` runs it before NetBird.
+
 ### `ssh` (`tasks/ssh.yml`, `files/00-ssh-hardening.conf`)
 
 Copies an SSH config drop-in to `/etc/ssh/sshd_config.d/`:
@@ -249,6 +286,8 @@ Copies an SSH config drop-in to `/etc/ssh/sshd_config.d/`:
 
 The Ubuntu installer put `/` on LVM but used only 19 of the 38 GB in the volume group. `community.general.lvol` grows `ubuntu-vg/ubuntu-lv` into all free space and `resizefs` grows the ext4 filesystem with it, online. Once there is no free space left, it does nothing.
 
+Skipped where there is no `ubuntu-vg`: the EduCloud cloud image has `/` directly on `/dev/vda1`, and cloud-init already grows it on first boot.
+
 ### `swap` (`tasks/swap.yml`)
 
 The kubelet refuses to run with swap on: Kubernetes plans memory per pod and expects RAM to be RAM.
@@ -258,7 +297,7 @@ The kubelet refuses to run with swap on: Kubernetes plans memory per pod and exp
 
 ### `packages` (`tasks/packages.yml`)
 
-Installs what is missing: `curl` (used by the RKE2 install script) and `qemu-guest-agent` (Proxmox can see the VM's IP and shut it down cleanly), then starts the agent. That start fails if the VM's **QEMU Guest Agent** option is off in Proxmox. Upgrades live in `upgrade.yml`, never here.
+Installs what is missing: `curl` (used by the RKE2 install script) and `qemu-guest-agent` (the hypervisor can see the VM's IP and shut it down cleanly). It then starts the agent, but only if the hypervisor gives the VM a guest agent channel (`/dev/virtio-ports/org.qemu.guest_agent.0`); without one the service cannot start. On Homelab the channel exists when the VM's **QEMU Guest Agent** option is on in Proxmox, so a "skipped" start there means that option is off. Upgrades live in `upgrade.yml`, never here.
 
 ---
 
@@ -365,6 +404,23 @@ Not listed in the role's `main.yml`: `site.yml` imports it in three ordered play
 
 The wait tasks are skipped in `--check` mode, since nothing actually starts there.
 
+### Single-node clusters (`defaults/main.yml`)
+
+The defaults describe Homelab: three masters, the first one (`rke2_init_server`) creates the cluster, kube-vip holds a VIP, and masters are tainted. A cluster with one server overrides four values in its group_vars (example: `inventory/educloud/group_vars/rancher.yml`):
+
+| Variable | Homelab | Single node | Effect |
+|---|---|---|---|
+| `rke2_init_server` | first host in `masters` | the node itself | which node creates the cluster and answers "is this node Ready?" |
+| `rke2_api_vip`, `rke2_api_hostname` | `10.10.10.5`, `api.hl.home.arpa` | empty | empty means no kube-vip manifest, no extra certificate names, no VIP wait. With one master there is nothing to fail over to, so the node's own IP is the API address. |
+| `rke2_server_taint` | `true` | `false` | without the taint, ordinary workloads (Rancher) can run on the only node |
+| `rke2_cilium_operator_replicas` | unset (chart default 2) | `1` | the second operator replica needs a second node and would stay Pending |
+
+`rke2_psa_exempt_rancher: true` is only for the cluster that runs the Rancher server: it writes `/etc/rancher/rke2/rancher-pss.yaml` and points `pod-security-admission-config-file` at it ([section 9](#9-role-rancher-the-management-server)).
+
+Joining nodes (`join.yaml.j2`, `config-agent.yaml.j2`) still go through the VIP, so a multi-node cluster without a VIP is not supported.
+
+Check that Homelab is unaffected: render the templates with Homelab's variables before and after a role change and compare (done on 2026-11-17: byte-identical).
+
 ---
 
 ## 8. Role `netbird`: the site gateway
@@ -423,11 +479,59 @@ Verified from the admin's PC after the restart: TCP 22 open on a master, a worke
 
 ---
 
-## 9. Running parts with tags
+## 9. Role `rancher`: the management server
+
+Rancher is a Kubernetes application (a Helm chart), so it needs a cluster to run in: its own single-node RKE2 cluster on `ec-rancher-01`, separate from the workload clusters ([docs/ideas.md](../docs/ideas.md) §5). The role installs two charts through **RKE2's built-in Helm controller**: a `HelmChart` file in `/var/lib/rancher/rke2/server/manifests/` makes RKE2 run `helm install` itself, the same mechanism that already configures Cilium. No Helm binary on the node or the workstation.
+
+### First run
+
+1. Create the cluster's join tokens on the workstation (once; back them up in the password manager — restoring an etcd snapshot needs the cluster token):
+   ```bash
+   mkdir -p secrets/rancher && chmod 700 secrets secrets/rancher
+   (umask 077; openssl rand -hex 32 > secrets/rancher/cluster-token; openssl rand -hex 32 > secrets/rancher/agent-token)
+   ```
+2. Preview, then run:
+   ```bash
+   ansible-playbook -i inventory/educloud rancher.yml -K --check --diff
+   ansible-playbook -i inventory/educloud rancher.yml -K
+   ```
+3. Open `https://10.10.31.40.sslip.io` over NetBird. The first-login password command is printed at the end of the run; Rancher then asks for a new admin password.
+
+### What the role does (`tasks/main.yml`)
+
+| Step | Why |
+|---|---|
+| wait for a **default** ingress class | the Rancher chart sets no `ingressClassName`, so it relies on the cluster default; RKE2 v1.36 deploys Traefik |
+| write `cert-manager.yaml` (cert-manager `rancher_cert_manager_version`, CRDs included), wait until its deployments are Available | Rancher's certificate is issued by cert-manager, and the Rancher chart refuses to install without cert-manager's CRDs |
+| write `rancher.yaml` (Rancher `rancher_version`), wait until the deployment is rolled out | written only after cert-manager runs, for the reason above; the first start takes 5–10 minutes |
+| print the login command | the generated first-login password is never printed or stored in the repo |
+
+Rancher values (`templates/rancher.yaml.j2`): `hostname: 10.10.31.40.sslip.io` (sslip.io is public DNS that answers with the IP in the name, so no DNS server is needed); `replicas: 1`; `ingress.tls.source: rancher` (Rancher's own CA, so browsers warn; agents get the CA from Rancher); `bootstrapPassword` empty, so Rancher generates one.
+
+**The hostname is permanent:** every managed cluster's agents connect to it, and a restore from backup must use the same one. Changing it later means re-registering both clusters.
+
+### Pod Security exemptions (`roles/rke2/templates/rancher-pss.yaml.j2`)
+
+The CIS profile enforces Pod Security "restricted" in every namespace except `kube-system`, `compliance-operator-system` and `tigera-operator`. Rancher's own pods do not meet "restricted", and Rancher's docs say their namespaces must be exempted. The file takes Rancher v2.15's official list and leaves out the namespaces of products this cluster never runs (Calico, Istio, Longhorn, NeuVector, …): fewer exemptions, fewer places an unrestricted pod can run. If a Rancher tool later fails with `violates PodSecurity`, check whether its namespace is in the official list.
+
+### Network
+
+Nothing to change in OpenTofu: the `mgmt` ACL already allows HTTPS, DNS and time sync out (images, charts, the RKE2 install) and HTTPS in from the `nodes` and `edge` tiers. The admin's browser arrives from `ec-gw-01` (NetBird, masquerade), which is in `edge`. Homelab's agents will arrive the same way once Homelab has its own gateway.
+
+### Next, in the Rancher UI
+
+- **EduCloud cluster:** Cluster Management → Create → Custom, with Pod CIDR `10.44.0.0/16`, service CIDR `10.45.0.0/16`, cluster DNS `10.45.0.10`, Cilium. Rancher shows a registration command to run on the five `ec-` nodes (after the `common` role).
+- **Homelab cluster:** Import Existing; the `kubectl apply` command it shows needs Homelab's agents to reach Rancher, so after Homelab's NetBird gateway.
+- Back up Rancher with the rancher-backup operator (DR phase). The Rancher v2.15.1 notes say Backups may not appear under Cluster Tools on v1.36 clusters; check when getting there.
+
+---
+
+## 10. Running parts with tags
 
 | Tag | Runs |
 |---|---|
 | `preflight` | the read-only checks |
+| `dns` | public DNS resolvers (EduCloud only) |
 | `ssh` | SSH hardening |
 | `disk` | grow the root volume |
 | `swap` | swap off |
@@ -439,6 +543,7 @@ Verified from the admin's PC after the restart: TCP 22 open on a master, a worke
 | `rke2-start` | the three start plays (combine with `--limit` to start one node) |
 | `netbird-install` | NetBird repository, package, service, forwarding (`gateway.yml`) |
 | `netbird-join` | register with the setup key (`gateway.yml`) |
+| `rancher` | cert-manager and Rancher (`rancher.yml`) |
 
 ```bash
 ansible-playbook site.yml -K --tags swap              # one part
@@ -448,7 +553,7 @@ ansible-playbook site.yml --list-tasks                # show every task and its 
 
 ---
 
-## 10. What is missing
+## 11. What is missing
 
 The cluster runs; these are known gaps in the code:
 
@@ -458,26 +563,32 @@ The cluster runs; these are known gaps in the code:
 
 ---
 
-## 11. Troubleshooting
+## 12. Troubleshooting
 
 | Symptom | Cause | Fix |
 |---|---|---|
 | `ssh_askpass: exec(/usr/bin/ssh-askpass): No such file or directory` … `Permission denied (publickey)` on every node | the key has a passphrase and is not loaded in an ssh-agent | `eval "$(ssh-agent -s)" && ssh-add ~/.ssh/homelab-ansible`. Permanent: `sudo apt install keychain` and add `eval "$(keychain --eval --quiet homelab-ansible)"` to `~/.bashrc` |
 | `Timeout waiting for privilege escalation prompt` | sudo-rs on Ubuntu 26.04 | `ansible_become_exe: sudo.ws` in `group_vars/all.yml` (already set) |
 | `BECOME password:` prompt | `-K` asks for `nknez`'s sudo password on the nodes | type it; it is the same password as on the Proxmox console |
-| `Start the guest agent` fails | the VM's **QEMU Guest Agent** option is off in Proxmox | enable it under VM → Options, then stop and start the VM |
+| `Start the guest agent` is skipped on a Homelab VM | the VM's **QEMU Guest Agent** option is off in Proxmox | enable it under VM → Options, then stop and start the VM |
+| `Wait for a default ingress class` runs out of retries | no ingress class is marked default, or Traefik did not start | `kubectl get ingressclass` and `kubectl -n kube-system get pods` on the node; if Traefik's class exists but is not default, set `ingress.ingressClassName` in `roles/rancher/templates/rancher.yaml.j2` |
+| a Rancher pod is not created, events say `violates PodSecurity "restricted"` | its namespace is not exempted | compare with Rancher's list (section 9), add the namespace to `rancher-pss.yaml.j2`, rerun with `--tags rke2-config` and restart `rke2-server` |
+| Ansible cannot log in to an EduCloud VM from a second PC | `group_vars/all.yml` names `~/.ssh/educloud-ansible`, which only the first PC has | pass that PC's key: `-e ansible_ssh_private_key_file=~/.ssh/<its key>` |
+| `x509: certificate is valid for *.blackboard.com, not index.docker.io` (or any unrelated name) when pulling images | the node still uses the VPC router's DNS, whose answers for Docker Hub and Quay are stale | run the `dns` tag (`--tags dns`); the ACL rules for Cloudflare must be applied first |
+| `Check Docker Hub's registry is reached at a real address` fails | DNS to Cloudflare is blocked (ACL rules not applied yet) or the answers are still wrong | `resolvectl status` and `getent ahostsv4 registry-1.docker.io` on the node; compare with `dig @1.1.1.1` from another machine |
 | a preflight assertion fails | the node does not match the plan (name, IP, clock, ufw) | the message says what differs; fix the node or the inventory |
 | the second run still shows `changed` | something is not idempotent or keeps drifting | run with `--diff` to see what changes each time |
 
 ---
 
-## 12. Sources
+## 13. Sources
 
 Checked 2026-11-14 unless noted.
 
 - Ansible: [inventory](https://docs.ansible.com/ansible/latest/inventory_guide/intro_inventory.html) · [roles](https://docs.ansible.com/ansible/latest/playbook_guide/playbooks_reuse_roles.html) · [handlers](https://docs.ansible.com/ansible/latest/playbook_guide/playbooks_handlers.html) · [tags](https://docs.ansible.com/ansible/latest/playbook_guide/playbooks_tags.html) · [check mode](https://docs.ansible.com/ansible/latest/playbook_guide/playbooks_checkmode.html)
 - RKE2: [server configuration reference](https://docs.rke2.io/reference/server_config) · [agent configuration reference](https://docs.rke2.io/reference/linux_agent_config) · [CIS hardening guide](https://docs.rke2.io/security/hardening_guide) · [HA install](https://docs.rke2.io/install/ha) · [network options (Cilium)](https://docs.rke2.io/networking/basic_network_options)
 - [kube-vip documentation](https://kube-vip.io/docs/)
+- Rancher server (checked 2026-11-17): [install on a Kubernetes cluster (v2.15)](https://documentation.suse.com/cloudnative/rancher-manager/v2.15/en/installation-and-upgrade/install-rancher.html) · [PSA restricted exemptions](https://ranchermanager.docs.rancher.com/reference-guides/rancher-security/psa-restricted-exemptions) · [chart repository (stable)](https://releases.rancher.com/server-charts/stable/index.yaml) · [v2.15.1 release notes](https://documentation.suse.com/cloudnative/rancher-manager/v2.15/en/release-notes/v2.15.1.html) · [RKE2 Helm controller](https://docs.rke2.io/add-ons/helm) · [RKE2 Pod Security Standards](https://docs.rke2.io/security/pod_security_standards) · [cert-manager releases](https://github.com/cert-manager/cert-manager/releases)
 - [Launchpad bug 2122414: Ansible times out after BECOME password request (sudo-rs)](https://bugs.launchpad.net/ubuntu/+source/ansible-core/+bug/2122414) (checked 2026-11-02)
 - NetBird (checked 2026-11-17): [Linux install](https://docs.netbird.io/get-started/install/linux) · [CLI and environment variables](https://docs.netbird.io/get-started/cli) · [site-to-site with Networks](https://docs.netbird.io/manage/networks/use-cases/site-to-site) · [ports and firewalls](https://docs.netbird.io/about-netbird/ports-and-firewalls)
 - Network values: [docs/network-plan.md](../docs/network-plan.md) · design decisions: [docs/ideas.md](../docs/ideas.md)

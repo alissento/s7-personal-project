@@ -1,0 +1,5 @@
+# Managed by Ansible (roles/common, tasks/dns.yml). Manual changes are overwritten.
+# "opportunistic": try DNS over TLS (port 853) first and fall back to plain DNS if it fails.
+# "yes" would refuse plain DNS altogether: stricter, but name resolution stops if 853 is ever blocked.
+[Resolve]
+DNSOverTLS={{ common_dns_over_tls }}

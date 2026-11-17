@@ -23,9 +23,21 @@
 # Time sync: Ubuntu 26.04 uses chrony with NTS (authenticated NTP). It first
 # fetches keys over TCP 4460, then syncs over UDP 123. Both must be allowed, or
 # the clock never synchronises (found on ec-gw-01, 2026-11-17).
+#
+# DNS: the VMs ask Cloudflare (1.1.1.1, 1.0.0.1), not the VR. The VR forwards to the school's resolvers,
+# which returned stale addresses for AWS-hosted names: registry-1.docker.io and quay.io resolved to IPs
+# that now serve other websites, so no container image could be pulled (found on ec-rancher-01,
+# 2026-11-17). Rules 502/512/517 allow plain DNS and DNS over TLS (853) to Cloudflare; Ansible points
+# the VMs at it (roles/common, tasks/dns.yml). The VR rules 500/510 stay for now: a VM that Ansible has
+# not switched yet (ec-gw-01 until it is reachable over SSH) still needs them. Remove them once every VM
+# uses Cloudflare.
 
 locals {
   vpc_cidr = "10.10.30.0/23"
+
+  # Cloudflare's public resolvers (https://developers.cloudflare.com/1.1.1.1/ip-addresses/, checked
+  # 2026-11-17). Must match common_dns_servers in ansible/inventory/educloud/group_vars/all.yml.
+  public_dns = ["1.1.1.1/32", "1.0.0.1/32"]
 
   # The edge text still says "jump host": it ends up in the ACL's description,
   # and CloudStack can only change that by replacing the whole ACL.
@@ -113,11 +125,19 @@ resource "cloudstack_network_acl_ruleset" "nodes" {
   # --- egress ---
   rule {
     rule_number  = 500
-    description  = "DNS to the VR only, not to resolvers on the internet"
+    description  = "DNS to the VR (only until every VM uses Cloudflare, see the DNS note at the top)"
     traffic_type = "egress"
     protocol     = "udp"
     port         = "53"
     cidr_list    = ["${local.tiers.nodes.gateway}/32"]
+  }
+  rule {
+    rule_number  = 502
+    description  = "DNS to Cloudflare: the VR's answers for AWS-hosted registries are stale"
+    traffic_type = "egress"
+    protocol     = "udp"
+    port         = "53"
+    cidr_list    = local.public_dns
   }
   rule {
     rule_number  = 510
@@ -126,6 +146,22 @@ resource "cloudstack_network_acl_ruleset" "nodes" {
     protocol     = "tcp"
     port         = "53"
     cidr_list    = ["${local.tiers.nodes.gateway}/32"]
+  }
+  rule {
+    rule_number  = 512
+    description  = "DNS over TCP to Cloudflare (large answers)"
+    traffic_type = "egress"
+    protocol     = "tcp"
+    port         = "53"
+    cidr_list    = local.public_dns
+  }
+  rule {
+    rule_number  = 517
+    description  = "DNS over TLS to Cloudflare (encrypted, so the network in between cannot alter answers)"
+    traffic_type = "egress"
+    protocol     = "tcp"
+    port         = "853"
+    cidr_list    = local.public_dns
   }
   rule {
     rule_number  = 520
@@ -205,11 +241,19 @@ resource "cloudstack_network_acl_ruleset" "edge" {
   # --- egress ---
   rule {
     rule_number  = 500
-    description  = "DNS to the VR only"
+    description  = "DNS to the VR (only until every VM uses Cloudflare, see the DNS note at the top)"
     traffic_type = "egress"
     protocol     = "udp"
     port         = "53"
     cidr_list    = ["${local.tiers.edge.gateway}/32"]
+  }
+  rule {
+    rule_number  = 502
+    description  = "DNS to Cloudflare: the VR's answers for AWS-hosted registries are stale"
+    traffic_type = "egress"
+    protocol     = "udp"
+    port         = "53"
+    cidr_list    = local.public_dns
   }
   rule {
     rule_number  = 510
@@ -218,6 +262,22 @@ resource "cloudstack_network_acl_ruleset" "edge" {
     protocol     = "tcp"
     port         = "53"
     cidr_list    = ["${local.tiers.edge.gateway}/32"]
+  }
+  rule {
+    rule_number  = 512
+    description  = "DNS over TCP to Cloudflare (large answers)"
+    traffic_type = "egress"
+    protocol     = "tcp"
+    port         = "53"
+    cidr_list    = local.public_dns
+  }
+  rule {
+    rule_number  = 517
+    description  = "DNS over TLS to Cloudflare (encrypted, so the network in between cannot alter answers)"
+    traffic_type = "egress"
+    protocol     = "tcp"
+    port         = "853"
+    cidr_list    = local.public_dns
   }
   rule {
     rule_number  = 520
@@ -334,11 +394,19 @@ resource "cloudstack_network_acl_ruleset" "mgmt" {
   # --- egress ---
   rule {
     rule_number  = 500
-    description  = "DNS to the VR only"
+    description  = "DNS to the VR (only until every VM uses Cloudflare, see the DNS note at the top)"
     traffic_type = "egress"
     protocol     = "udp"
     port         = "53"
     cidr_list    = ["${local.tiers.mgmt.gateway}/32"]
+  }
+  rule {
+    rule_number  = 502
+    description  = "DNS to Cloudflare: the VR's answers for AWS-hosted registries are stale"
+    traffic_type = "egress"
+    protocol     = "udp"
+    port         = "53"
+    cidr_list    = local.public_dns
   }
   rule {
     rule_number  = 510
@@ -347,6 +415,22 @@ resource "cloudstack_network_acl_ruleset" "mgmt" {
     protocol     = "tcp"
     port         = "53"
     cidr_list    = ["${local.tiers.mgmt.gateway}/32"]
+  }
+  rule {
+    rule_number  = 512
+    description  = "DNS over TCP to Cloudflare (large answers)"
+    traffic_type = "egress"
+    protocol     = "tcp"
+    port         = "53"
+    cidr_list    = local.public_dns
+  }
+  rule {
+    rule_number  = 517
+    description  = "DNS over TLS to Cloudflare (encrypted, so the network in between cannot alter answers)"
+    traffic_type = "egress"
+    protocol     = "tcp"
+    port         = "853"
+    cidr_list    = local.public_dns
   }
   rule {
     rule_number  = 520

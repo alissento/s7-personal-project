@@ -1,0 +1,29 @@
+---
+# The Rancher server's cluster: one RKE2 server on ec-rancher-01 (rancher.yml). Ranges: docs/network-plan.md.
+# Role defaults (roles/rke2/defaults/main.yml) describe Homelab's three masters; these values turn that into
+# a single-node cluster.
+
+# --- RKE2 ---
+rke2_type: server
+rke2_init_server: ec-rancher-01
+rke2_version: v1.36.5+rke2r1          # same as Homelab, and Rancher v2.15.3's default RKE2 version (checked 2026-11-17)
+rke2_node_region: educloud            # node label: topology.kubernetes.io/region
+rke2_cluster_cidr: 10.46.0.0/16       # pod IPs, unique across all three clusters
+rke2_service_cidr: 10.47.0.0/16
+rke2_cluster_dns: 10.47.0.10          # must be inside the service CIDR
+cilium_cluster_name: rancher          # unique per cluster
+cilium_cluster_id: 3
+rke2_token_dir: "{{ playbook_dir }}/secrets/rancher"   # join tokens on the workstation, gitignored
+
+# Single node: no VIP (rke2_api_vip stays empty, so no kube-vip), no taint, one Cilium operator.
+rke2_server_taint: false
+rke2_cilium_operator_replicas: 1
+# The CIS profile's Pod Security "restricted" would block Rancher's own pods: exempt its namespaces.
+rke2_psa_exempt_rancher: true
+
+# --- Rancher (roles/rancher) ---
+# sslip.io is public DNS that answers 10.10.31.40.sslip.io with 10.10.31.40, so no DNS server is needed.
+# Agents of every managed cluster connect to this name: changing it later means re-registering them.
+rancher_hostname: 10.10.31.40.sslip.io
+rancher_version: 2.15.3                # latest stable chart, supports Kubernetes < 1.37 (checked 2026-11-17)
+rancher_cert_manager_version: v1.21.3  # latest release; the Rancher chart needs >= 1.15.0 (checked 2026-11-17)

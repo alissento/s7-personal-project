@@ -1,0 +1,20 @@
+# Managed by Ansible (roles/rancher). Manual changes are overwritten.
+# cert-manager, which Rancher needs to issue its own HTTPS certificate (ingress.tls.source: rancher).
+# Installed by RKE2's built-in Helm controller: it runs a helm job for every HelmChart in the manifests folder.
+# Deleting this file does NOT uninstall the chart.
+---
+apiVersion: helm.cattle.io/v1
+kind: HelmChart
+metadata:
+  name: cert-manager
+  namespace: kube-system
+spec:
+  repo: https://charts.jetstack.io
+  chart: cert-manager
+  version: "{{ rancher_cert_manager_version }}"
+  targetNamespace: cert-manager
+  createNamespace: true
+  valuesContent: |-
+    # Install cert-manager's CRDs with the chart (the Rancher chart refuses to install without them).
+    crds:
+      enabled: true

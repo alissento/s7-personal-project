@@ -1,9 +1,12 @@
 ---
-# Ubuntu's installer puts / on LVM but only gives it about half of the disk (19 of 40 GB here).
+# Homelab: Ubuntu's installer puts / on LVM but only gives it about half of the disk (19 of 40 GB here).
 # Hand the rest to /, so RKE2 has room for container images and etcd.
+# EduCloud: the cloud image has no LVM (/ is directly on /dev/vda1) and cloud-init grows it on first boot,
+# so there is nothing to do and the task is skipped.
 - name: Grow the root volume to use the whole disk
   community.general.lvol:
     vg: ubuntu-vg
     lv: ubuntu-lv
     size: +100%FREE   # take all free space in the volume group; does nothing once there is none left
     resizefs: true    # grow the ext4 filesystem along with it (works online, no reboot)
+  when: "'ubuntu-vg' in (ansible_facts.lvm.vgs | default({}))"

@@ -1,0 +1,59 @@
+---
+# Installs cert-manager and the Rancher server on a running single-node RKE2 cluster, through RKE2's Helm
+# controller (HelmChart manifests). Runs after rke2 start.yml: see rancher.yml.
+#   ansible-playbook -i inventory/educloud rancher.yml -K --tags rancher
+
+# Every kubectl call below runs on the node with RKE2's admin kubeconfig, and only reads state.
+- name: Wait for a default ingress class (RKE2's Traefik), which the Rancher chart relies on
+  ansible.builtin.command: >-
+    {{ rancher_kubectl }} get ingressclass
+    -o jsonpath='{range .items[*]}{.metadata.name}={.metadata.annotations.ingressclass\.kubernetes\.io/is-default-class}{"\n"}{end}'
+  register: rancher_ingress_classes
+  until: "'=true' in rancher_ingress_classes.stdout"
+  retries: 30   # up to 5 minutes after the first start
+  delay: 10
+  changed_when: false
+  when: not ansible_check_mode
+
+- name: Write the cert-manager chart
+  ansible.builtin.template:
+    src: cert-manager.yaml.j2
+    dest: /var/lib/rancher/rke2/server/manifests/cert-manager.yaml
+    owner: root
+    group: root
+    mode: "0600"
+
+- name: Wait until cert-manager is running
+  ansible.builtin.command: "{{ rancher_kubectl }} -n cert-manager wait --for=condition=Available deployment --all --timeout=10s"
+  register: rancher_cert_manager_ready
+  until: rancher_cert_manager_ready.rc == 0   # also fails while the namespace has no deployments yet
+  retries: 30
+  delay: 10
+  changed_when: false
+  when: not ansible_check_mode
+
+- name: Write the Rancher chart
+  ansible.builtin.template:
+    src: rancher.yaml.j2
+    dest: /var/lib/rancher/rke2/server/manifests/rancher.yaml
+    owner: root
+    group: root
+    mode: "0600"
+
+- name: Wait until Rancher is running (the first start takes 5-10 minutes)
+  ansible.builtin.command: "{{ rancher_kubectl }} -n cattle-system rollout status deployment/rancher --timeout=10s"
+  register: rancher_ready
+  until: rancher_ready.rc == 0
+  retries: 60   # up to 15 minutes
+  delay: 15
+  changed_when: false
+  when: not ansible_check_mode
+
+# The password itself is never printed, so it does not end up in terminal scrollback or CI logs.
+- name: Show how to log in
+  ansible.builtin.debug:
+    msg:
+      - "Rancher: https://{{ rancher_hostname }} (over NetBird). The browser warns about the certificate: Rancher's own CA."
+      - "First login password, on {{ inventory_hostname }}:"
+      - "sudo {{ rancher_kubectl }} -n cattle-system get secret bootstrap-secret -o jsonpath='{.data.bootstrapPassword}' | base64 -d; echo"
+      - "Rancher then asks for a new admin password: store it in your password manager."

@@ -7,10 +7,16 @@ token-file: /etc/rancher/rke2/cluster-token       # servers join with this
 agent-token-file: /etc/rancher/rke2/agent-token   # workers join with this; it cannot join as a server
 
 # --- API endpoint ---------------------------------------------------------------
+{% if rke2_api_vip | length > 0 or rke2_api_hostname | length > 0 %}
 # Extra names on the API server certificate. Node IPs and hostnames are added automatically.
 tls-san:
+{% if rke2_api_vip | length > 0 %}
   - {{ rke2_api_vip }}
+{% endif %}
+{% if rke2_api_hostname | length > 0 %}
   - {{ rke2_api_hostname }}
+{% endif %}
+{% endif %}
 write-kubeconfig-mode: "0600"
 
 # --- Networking -----------------------------------------------------------------
@@ -27,11 +33,19 @@ ingress-controller: traefik     # default for new clusters since v1.36 (ingress-
 # etcd user and CIS kernel parameters (tasks/install.yml and tasks/sysctl.yml set up both).
 profile: cis
 secrets-encryption-provider: secretbox   # Kubernetes docs advise against the aescbc default
+{% if rke2_psa_exempt_rancher %}
+# Replaces RKE2's default Pod Security config with one that also exempts Rancher's namespaces.
+pod-security-admission-config-file: /etc/rancher/rke2/rancher-pss.yaml
+{% endif %}
 
 # --- Control-plane placement ----------------------------------------------------
+{% if rke2_server_taint %}
 # Keep application pods off the masters. Only critical add-ons (Cilium, CoreDNS, kube-vip) tolerate this.
 node-taint:
   - CriticalAddonsOnly=true:NoExecute
+{% else %}
+# No taint: this is a single-node cluster, so the only node must also run the workloads.
+{% endif %}
 node-label:
   - topology.kubernetes.io/region={{ rke2_node_region }}
 
