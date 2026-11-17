@@ -1,0 +1,15 @@
+---
+# Connection settings for every EduCloud VM. The user and its key are created on first boot by cloud-init
+# (opentofu/educloud/cloud-init.yaml.tftpl). A separate key from Homelab's: a key leaked at one site
+# does not open the other.
+ansible_user: nknez
+ansible_ssh_private_key_file: ~/.ssh/educloud-ansible
+
+# Ubuntu 26.04 uses sudo-rs by default, and Ansible does not recognise its password prompt yet
+# (Launchpad bug 2122414, checked 2026-11-02). Use the classic sudo, which is still installed next to it
+# (checked on ec-gw-01, 2026-11-17).
+ansible_become_exe: sudo.ws
+
+# NetBird, the VPN between the sites and for admin access (role netbird).
+netbird_version: 0.83.1   # latest release, checked 2026-11-17
+netbird_setup_key_file: "{{ playbook_dir }}/secrets/educloud/netbird-setup-key"   # on the workstation, gitignored

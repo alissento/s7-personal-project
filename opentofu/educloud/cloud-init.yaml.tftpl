@@ -1,0 +1,30 @@
+#cloud-config
+# First-boot setup, the same for every EduCloud VM. cloud-init, which is part
+# of the Ubuntu cloud image, reads this from CloudStack once, on the first
+# boot. It only makes the VM reachable for Ansible; all other configuration is
+# in ansible/.
+#
+# Filled in by OpenTofu (instances.tf): admin_user, ssh_public_key,
+# sudo_password_hash.
+
+# Listing users without "default" means the image's standard "ubuntu" user is
+# NOT created: the only account that can log in is the one below.
+users:
+  - name: ${admin_user}
+    gecos: Admin user (Ansible)
+    shell: /bin/bash
+    # Member of sudo: may become root, but sudo asks for the password.
+    groups: [sudo]
+    # The password is given as a hash and is used for sudo and the CloudStack
+    # console (break-glass). It cannot be used over SSH (see ssh_pwauth).
+    lock_passwd: false
+    passwd: ${jsonencode(sudo_password_hash)}
+    ssh_authorized_keys:
+      - ${ssh_public_key}
+
+# SSH accepts keys only, from the first boot on. The Ansible common role
+# enforces the same later.
+ssh_pwauth: false
+
+# root cannot log in over SSH.
+disable_root: true

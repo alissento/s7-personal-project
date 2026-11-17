@@ -12,7 +12,7 @@ Rule: **no range may overlap between the two sites.** The sites are linked by Ne
 | Node subnet | 10.10.10.0/24 | 10.10.30.0/24 (VPC tier `nodes`) | dedicated VLAN/bridge for the cluster if possible |
 | Gateway | 10.10.10.1 | 10.10.30.1 (the VPC's virtual router) | |
 | DNS servers | 1.1.1.1, 8.8.8.8 | the tier's virtual router (10.10.30.1 for the nodes) | the Homelab gateway does not answer DNS (TCP 53 refused); at EduCloud the ACLs allow DNS only to the virtual router |
-| API VIP (kube-vip) | 10.10.10.5 | 10.10.30.10 | |
+| API VIP (kube-vip) | 10.10.10.5 | 10.10.30.5 *(proposed)* | same last octet on both sites. EduCloud's was listed as 10.10.30.10, which is `ec-master-01`'s address (found 2026-11-17) |
 | Pod CIDR | 10.42.0.0/16 | 10.44.0.0/16 | unique per site |
 | Service CIDR | 10.43.0.0/16 | 10.45.0.0/16 | |
 | Cluster DNS | 10.43.0.10 | 10.45.0.10 | inside the service CIDR |
@@ -43,7 +43,7 @@ EduCloud runs Apache CloudStack. The site is one **VPC** (10.10.30.0/23) with on
 | Tier | Subnet | VR / gateway | Holds |
 |---|---|---|---|
 | `nodes` | 10.10.30.0/24 | 10.10.30.1 | masters, workers, API VIP, LoadBalancer pool |
-| `edge` | 10.10.31.16/28 | 10.10.31.17 | `ec-gw-01`: SSH jump host now, NetBird routing peer later |
+| `edge` | 10.10.31.16/28 | 10.10.31.17 | `ec-gw-01`: NetBird routing peer |
 | `mgmt` | 10.10.31.32/28 | 10.10.31.33 | `ec-rancher-01` |
 | *free* | rest of 10.10.31.0/24 | | room for more /28 tiers |
 
@@ -51,50 +51,32 @@ EduCloud runs Apache CloudStack. The site is one **VPC** (10.10.30.0/23) with on
 |---|---|---|---|
 | `ec-master-01` … `03` | RKE2 server, provisioned by Rancher | `nodes` | 10.10.30.10 – .12 |
 | `ec-worker-01`, `02` | RKE2 agent, provisioned by Rancher | `nodes` | 10.10.30.20, .21 |
-| `ec-gw-01` | SSH jump host; later the NetBird routing peer | `edge` | 10.10.31.30 |
+| `ec-gw-01` | NetBird routing peer | `edge` | 10.10.31.30 |
 | `ec-rancher-01` | Rancher (single-node cluster) | `mgmt` | 10.10.31.40 |
 
 What the ACLs allow (everything else is denied):
 
 | Tier | In | Out |
 |---|---|---|
-| `nodes` | 22 and 6443 from `edge`; ICMP from the VPC | DNS to the VR; 80, 443, 123/udp, ICMP to anywhere |
-| `edge` | 22 from the admin's public IPs (`admin_cidrs`, kept outside the repo); ICMP from the VPC | DNS to the VR; 80, 443, 123/udp, ICMP to anywhere; 22 to the VPC; 6443 to `nodes` |
-| `mgmt` | 443 from `nodes` and `edge`; 22 from `edge`; ICMP from the VPC | DNS to the VR; 80, 443, 123/udp, ICMP to anywhere |
+| `nodes` | 22 and 6443 from `edge`; ICMP from the VPC | DNS to the VR; 80, 443, time sync, ICMP to anywhere |
+| `edge` | ICMP from the VPC; nothing from outside (NetBird only dials out) | DNS to the VR; 80, 443, time sync, ICMP to anywhere; 22 to the VPC; 6443 to `nodes`; all UDP to anywhere (NetBird: STUN and direct WireGuard connections to peers) |
+| `mgmt` | 443 from `nodes` and `edge`; 22 from `edge`; ICMP from the VPC | DNS to the VR; 80, 443, time sync, ICMP to anywhere |
 
-Admin access until NetBird is up: one port forward (TCP 22) on a VPC public IP to `ec-gw-01`, allowed only from `admin_cidrs`. Every other VM is reached through it (`ssh -J`), and the Rancher UI and the Kubernetes API through SSH tunnels. The port forward is removed once NetBird works.
+Time sync is two rules: TCP 4460 and UDP 123. Ubuntu 26.04's chrony uses NTS (authenticated NTP), which fetches its keys over TCP 4460 before syncing over UDP 123; with only 123 open the clock never synchronised (found on `ec-gw-01`, 2026-11-17).
 
-Later, with NetBird: a VPC static route sends 10.10.10.0/24 to `ec-gw-01` (`nexthop`, CloudStack 4.22+), so EduCloud nodes need no static routes of their own; the ACLs then get rules for the cross-site ports below.
+EduCloud's additional "public" IPs are private addresses (10.52.x, 10.53.x) that only the school network and its VPN can reach; only the VPC's source NAT IP is on the internet. So nothing at EduCloud can be published to the internet, and admin access from outside the school goes through NetBird, which only dials out.
 
-DNS: Homelab has no local DNS server, so nodes reach the API through the VIP's IP. The name `api.hl.home.arpa` still goes on the API certificate (RKE2 `tls-san`), so a DNS record can be added later without reissuing certificates. Until then, a workstation can use it through an `/etc/hosts` entry. `home.arpa` is the domain reserved for home networks ([RFC 8375](https://www.rfc-editor.org/rfc/rfc8375)).
-
-## Ports between Homelab nodes
-
-If ufw or the Proxmox firewall is on, allow these within the node subnet.
-
-Checked 2026-11-06: ufw is disabled on all nodes (`ENABLED=no`). Probing TCP 6443, 9345, 10250, 2379 and 4240 between all nodes returned "connection refused" every time, so nothing drops that traffic. UDP was not tested; confirm 8472 once Cilium is running.
-
-| Port | Proto | From → To | Purpose |
-|---|---|---|---|
-| 6443 | TCP | all nodes, admin workstation → masters | Kubernetes API |
-| 9345 | TCP | all nodes → masters | RKE2 supervisor (node join) |
-| 2379–2381 | TCP | masters ↔ masters | etcd client / peer / metrics |
-| 10250 | TCP | all ↔ all | kubelet |
-| 30000–32767 | TCP | clients → all | NodePort services |
-| 4240 | TCP | all ↔ all | Cilium health checks |
-| 4244 | TCP | all ↔ all | Hubble server (relay → nodes) |
-| 8472 | UDP | all ↔ all | Cilium VXLAN |
-| 51871 | UDP | all ↔ all | Cilium WireGuard (once encryption is enabled) |
-| ICMP echo | — | all ↔ all | Cilium health |
+Admin access (since 2026-11-17): the admin's PC and `ec-gw-01` both run NetBird. `ec-gw-01` is the routing peer for 10.10.30.0/23, and a NetBird policy lets the PC reach the VPC on TCP 22, 443 and 6443. The traffic arrives in the other tiers from `ec-gw-01`'s address (masquerade), which is what their ACLs allow from `edge`. Break-glass: the VM console in the EduCloud UI. The temporary SSH port forward used to bootstrap this is removed.
 
 ## Cross-site traffic
 
-Once NetBird is up, neither site opens an inbound port (the temporary SSH port forward at EduCloud is removed): the NetBird gateways only dial out, to NetBird's control server and to each other. The NetBird access policy (deny by default) lets only these through:
+Neither site opens an inbound port: the NetBird gateways only dial out, to NetBird's control server and to each other. The NetBird access policy (deny by default) lets only these through:
 
 | Port | Proto | From → To | Purpose |
 |---|---|---|---|
 | 443 | TCP | Homelab nodes → `ec-rancher-01` | Rancher agents of the imported Homelab cluster |
 | 6443 | TCP | admin → masters of either site | Kubernetes API |
+| 22, 443 | TCP | admin → EduCloud VPC | SSH and Ansible; the Rancher UI (in place since 2026-11-17) |
 | 5432 | TCP | EduCloud replica → Homelab primary | database replication (DR phase) |
 
 ## Where the values live
@@ -106,4 +88,5 @@ Once NetBird is up, neither site opens an inbound port (the temporary SSH port f
 | RKE2 and kube-vip versions, node region label | `ansible/inventory/homelab/group_vars/all.yml` |
 | Gateway, DNS servers | the nodes' own network config (not managed by Ansible), this file |
 | EduCloud VPC, tiers, gateways, ACL rules | `opentofu/educloud/network.tf`, this file |
-| EduCloud admin source IPs | `TF_VAR_admin_cidrs` in `~/.config/educloud/cloudstack.env` (not in the repo) |
+| EduCloud VM names, IPs, sizes | `opentofu/educloud/instances.tf`, `opentofu/educloud/README.md`, this file |
+| NetBird network, routing peer, groups and access policies | the NetBird dashboard (not in the repo yet) |

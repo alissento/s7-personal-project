@@ -1,0 +1,42 @@
+---
+# Registers this machine with the NetBird account, once. The setup key is created by hand in the NetBird
+# dashboard (one-off, short expiry) and saved on the workstation in ansible/secrets/<site>/ (gitignored).
+# After the first join the machine has its own private key in /var/lib/netbird/ and the setup key is
+# never needed again.
+- name: Read the NetBird status
+  ansible.builtin.command: netbird status
+  register: netbird_status
+  changed_when: false
+  failed_when: false
+  check_mode: false   # read-only, so it may also run in --check mode
+
+- name: Join with the setup key
+  when: "'Management: Connected' not in netbird_status.stdout"
+  block:
+    - name: Check the setup key exists on this workstation
+      ansible.builtin.stat:
+        path: "{{ netbird_setup_key_file }}"
+      register: netbird_setup_key_stat
+      delegate_to: localhost
+      become: false
+
+    - name: Stop if the setup key is missing
+      ansible.builtin.assert:
+        that: netbird_setup_key_stat.stat.exists
+        fail_msg: "No setup key in {{ netbird_setup_key_file }}: create one in the NetBird dashboard (ansible/README.md, role netbird)"
+        quiet: true
+
+    # The key is handed over as an environment variable, so it is neither written to the VM's disk nor
+    # visible in its process list. no_log keeps it out of Ansible's output.
+    - name: Register with NetBird
+      ansible.builtin.command: netbird up
+      environment:
+        NB_SETUP_KEY: "{{ lookup('ansible.builtin.file', netbird_setup_key_file) | trim }}"
+      no_log: true
+      changed_when: true
+
+    - name: Check the connection to NetBird
+      ansible.builtin.command: netbird status
+      register: netbird_status_after
+      changed_when: false
+      failed_when: "'Management: Connected' not in netbird_status_after.stdout"

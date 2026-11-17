@@ -44,3 +44,8 @@ output "tiers" {
   description = "Tier network IDs, by tier."
   value       = { for k, n in cloudstack_network.tier : k => n.id }
 }
+
+output "vms" {
+  description = "Private IP of every VM, by name."
+  value       = { for name, vm in cloudstack_instance.vm : name => vm.ip_address }
+}

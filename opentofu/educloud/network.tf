@@ -3,7 +3,7 @@
 #
 #   VPC 10.10.30.0/23 ── one virtual router (VR): gateway, DHCP, DNS, source NAT
 #     tier nodes  10.10.30.0/24    masters, workers, API VIP, LoadBalancer pool
-#     tier edge   10.10.31.16/28   ec-gw-01: SSH jump host now, NetBird later
+#     tier edge   10.10.31.16/28   ec-gw-01: the NetBird gateway (routing peer)
 #     tier mgmt   10.10.31.32/28   ec-rancher-01
 #
 # How the ACLs work (CloudStack 4.22, VPC network ACLs):
@@ -19,10 +19,16 @@
 #
 # Numbering: 1xx ingress allow, 199 ingress deny all,
 #            5xx egress allow,  599 egress deny all.
+#
+# Time sync: Ubuntu 26.04 uses chrony with NTS (authenticated NTP). It first
+# fetches keys over TCP 4460, then syncs over UDP 123. Both must be allowed, or
+# the clock never synchronises (found on ec-gw-01, 2026-11-17).
 
 locals {
   vpc_cidr = "10.10.30.0/23"
 
+  # The edge text still says "jump host": it ends up in the ACL's description,
+  # and CloudStack can only change that by replacing the whole ACL.
   tiers = {
     nodes = { cidr = "10.10.30.0/24", gateway = "10.10.30.1", purpose = "RKE2 masters and workers" }
     edge  = { cidr = "10.10.31.16/28", gateway = "10.10.31.17", purpose = "SSH jump host, later the NetBird gateway" }
@@ -74,7 +80,7 @@ resource "cloudstack_network_acl_ruleset" "nodes" {
   # --- ingress ---
   rule {
     rule_number  = 100
-    description  = "SSH from the jump host (Ansible)"
+    description  = "SSH from the NetBird gateway (admin, Ansible)"
     traffic_type = "ingress"
     protocol     = "tcp"
     port         = "22"
@@ -82,7 +88,7 @@ resource "cloudstack_network_acl_ruleset" "nodes" {
   }
   rule {
     rule_number  = 110
-    description  = "Kubernetes API from the jump host (kubectl through an SSH tunnel)"
+    description  = "Kubernetes API from the NetBird gateway (kubectl)"
     traffic_type = "ingress"
     protocol     = "tcp"
     port         = "6443"
@@ -146,6 +152,14 @@ resource "cloudstack_network_acl_ruleset" "nodes" {
     cidr_list    = ["0.0.0.0/0"]
   }
   rule {
+    rule_number  = 545
+    description  = "NTS key exchange: Ubuntu 26.04 authenticates its time servers before NTP"
+    traffic_type = "egress"
+    protocol     = "tcp"
+    port         = "4460"
+    cidr_list    = ["0.0.0.0/0"]
+  }
+  rule {
     rule_number  = 550
     description  = "ICMP: ping and path MTU discovery"
     traffic_type = "egress"
@@ -163,21 +177,15 @@ resource "cloudstack_network_acl_ruleset" "nodes" {
 }
 
 # ---------------------------------------------------------------------------
-# tier edge: ec-gw-01 (SSH jump host now; NetBird gateway later)
+# tier edge: ec-gw-01, the NetBird gateway. It only dials out to NetBird, so
+# nothing from outside the VPC is let in. Admin and cross-site traffic leaves
+# it with its own address (masquerade), which is what the other tiers allow.
 # ---------------------------------------------------------------------------
 resource "cloudstack_network_acl_ruleset" "edge" {
   acl_id  = cloudstack_network_acl.tier["edge"].id
   managed = true
 
   # --- ingress ---
-  rule {
-    rule_number  = 100
-    description  = "SSH from the admin's own public IPs only (port forward, step 3c)"
-    traffic_type = "ingress"
-    protocol     = "tcp"
-    port         = "22"
-    cidr_list    = var.admin_cidrs
-  }
   rule {
     rule_number  = 120
     description  = "ping from inside the VPC (troubleshooting)"
@@ -221,7 +229,7 @@ resource "cloudstack_network_acl_ruleset" "edge" {
   }
   rule {
     rule_number  = 530
-    description  = "HTTPS: updates; Rancher UI through an SSH tunnel (tier mgmt)"
+    description  = "HTTPS: updates, NetBird control and relay servers, Rancher (tier mgmt)"
     traffic_type = "egress"
     protocol     = "tcp"
     port         = "443"
@@ -236,6 +244,14 @@ resource "cloudstack_network_acl_ruleset" "edge" {
     cidr_list    = ["0.0.0.0/0"]
   }
   rule {
+    rule_number  = 545
+    description  = "NTS key exchange: Ubuntu 26.04 authenticates its time servers before NTP"
+    traffic_type = "egress"
+    protocol     = "tcp"
+    port         = "4460"
+    cidr_list    = ["0.0.0.0/0"]
+  }
+  rule {
     rule_number  = 550
     description  = "ICMP: ping and path MTU discovery"
     traffic_type = "egress"
@@ -244,7 +260,7 @@ resource "cloudstack_network_acl_ruleset" "edge" {
   }
   rule {
     rule_number  = 560
-    description  = "SSH onward to every VM in the VPC (jump host)"
+    description  = "SSH to every VM in the VPC (admin traffic arriving over NetBird)"
     traffic_type = "egress"
     protocol     = "tcp"
     port         = "22"
@@ -252,11 +268,18 @@ resource "cloudstack_network_acl_ruleset" "edge" {
   }
   rule {
     rule_number  = 570
-    description  = "Kubernetes API of the EduCloud cluster (kubectl through an SSH tunnel)"
+    description  = "Kubernetes API of the EduCloud cluster (admin traffic arriving over NetBird)"
     traffic_type = "egress"
     protocol     = "tcp"
     port         = "6443"
     cidr_list    = [local.tiers.nodes.cidr]
+  }
+  rule {
+    rule_number  = 580
+    description  = "NetBird: UDP to its STUN servers and directly to other peers (WireGuard)"
+    traffic_type = "egress"
+    protocol     = "udp"
+    cidr_list    = ["0.0.0.0/0"]
   }
   rule {
     rule_number  = 599
@@ -278,7 +301,7 @@ resource "cloudstack_network_acl_ruleset" "mgmt" {
   # --- ingress ---
   rule {
     rule_number  = 100
-    description  = "SSH from the jump host"
+    description  = "SSH from the NetBird gateway (admin, Ansible)"
     traffic_type = "ingress"
     protocol     = "tcp"
     port         = "22"
@@ -286,7 +309,7 @@ resource "cloudstack_network_acl_ruleset" "mgmt" {
   }
   rule {
     rule_number  = 110
-    description  = "Rancher (HTTPS): agents on the nodes; the UI through the jump host"
+    description  = "Rancher (HTTPS): agents on the nodes; UI and Homelab agents over NetBird"
     traffic_type = "ingress"
     protocol     = "tcp"
     port         = "443"
@@ -347,6 +370,14 @@ resource "cloudstack_network_acl_ruleset" "mgmt" {
     traffic_type = "egress"
     protocol     = "udp"
     port         = "123"
+    cidr_list    = ["0.0.0.0/0"]
+  }
+  rule {
+    rule_number  = 545
+    description  = "NTS key exchange: Ubuntu 26.04 authenticates its time servers before NTP"
+    traffic_type = "egress"
+    protocol     = "tcp"
+    port         = "4460"
     cidr_list    = ["0.0.0.0/0"]
   }
   rule {

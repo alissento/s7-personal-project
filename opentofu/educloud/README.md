@@ -2,11 +2,12 @@
 
 This folder will describe everything the project needs in EduCloud (the school cloud, running Apache CloudStack 4.22.1.1) as code: the network and the 7 VMs from [docs/network-plan.md](../../docs/network-plan.md). OpenTofu compares this description with what exists in EduCloud and creates, changes or deletes only the difference.
 
-Status on 2026-11-15:
+Status on 2026-11-17:
 - **3a** done: the provider connects to EduCloud and looks up the zone, the Ubuntu image and the offerings.
-- **3b** written: the VPC with its three tiers and network ACLs ([section 5](#5-network-networktf)).
-- **3c** next: the SSH key, the 7 VMs and the SSH port forward to the jump host.
-- Later, with NetBird: the VPC static route to Homelab and the cross-site ACL rules.
+- **3b** done, applied 2026-11-15: the VPC with its three tiers and network ACLs ([section 5](#5-network-networktf)).
+- **3c** done, applied 2026-11-17: the 7 VMs and their first-boot setup ([section 6](#6-vms-and-admin-access-instancestf-cloud-inityamltftpl)).
+- Admin access goes through NetBird (`ec-gw-01` is the routing peer, set up by Ansible: [ansible/README.md](../../ansible/README.md), section 8). The temporary SSH port forward used to bootstrap it was removed on 2026-11-17.
+- Later, with the Homelab gateway: the VPC static route to Homelab and the cross-site ACL rules.
 
 ## 1. Quick start
 
@@ -17,7 +18,8 @@ Status on 2026-11-15:
 | OpenTofu (`tofu`) | 1.13.9, from the official apt repository, `apt-mark hold` | runs this code |
 | CloudMonkey (`cmk`) | 6.6.0, SHA-256 checked against the release notes | CloudStack's CLI, for looking things up by hand |
 | EduCloud API keys | — | generated in the EduCloud UI (your profile → *Generate keys*); they can do anything your account can |
-| `~/.config/educloud/cloudstack.env` | — | the keys and the state passphrase as environment variables, outside the repo, mode `0600` |
+| `~/.config/educloud/cloudstack.env` | — | the keys, the state passphrase and the sudo password hash as environment variables, outside the repo, mode `0600` |
+| SSH key `~/.ssh/educloud-ansible` | ed25519, with a passphrase | login to every EduCloud VM. A separate key from Homelab's, so a key leaked at one site does not open the other |
 
 **One-time setup of the env file** (`read -s` keeps the values off the screen and out of the shell history):
 
@@ -38,13 +40,20 @@ read -rsp 'State passphrase: ' p; echo
 
 The passphrase is the only protection of a copied state file, and it can be guessed offline at any speed, so a single word, even repeated, is too weak. Keep it in a password manager. **Without it the state cannot be read.** The VMs keep running, but OpenTofu would no longer know they are its own.
 
-**Your public IPs** (home and school), the only sources allowed to SSH to the jump host. They are personal data, so they stay out of the repo. Find each with `curl -s https://ifconfig.me` while on that network:
+**The SSH key** for the VMs. Only the public half (`.pub`) is read by OpenTofu:
 
 ```bash
-(umask 077; echo "export TF_VAR_admin_cidrs='[\"203.0.113.7/32\",\"198.51.100.0/24\"]'" >> ~/.config/educloud/cloudstack.env)
+ssh-keygen -t ed25519 -f ~/.ssh/educloud-ansible -C educloud-ansible   # set a passphrase
+ssh-add ~/.ssh/educloud-ansible
 ```
 
-When an IP changes, edit that line and run `tofu apply`; only the `edge` ACL changes. `0.0.0.0/0` is rejected on purpose.
+**The sudo password** of the admin user on the VMs, as a hash. `openssl` asks for the password twice and prints only the hash, which goes straight into the env file:
+
+```bash
+(umask 077; printf "export TF_VAR_sudo_password_hash='%s'\n" "$(openssl passwd -6)" >> ~/.config/educloud/cloudstack.env)
+```
+
+Keep the password in a password manager: Ansible asks for it (`-K`), and it is the login on the CloudStack console if SSH ever fails.
 
 **Commands**, always run from inside `opentofu/educloud/`:
 
@@ -63,10 +72,12 @@ tofu apply       # make the changes, after showing the plan and asking "yes"
 |---|---|
 | `versions.tf` | required OpenTofu (1.13.x) and provider (`cloudstack/cloudstack` 0.7.0) versions; state and plan encryption |
 | `providers.tf` | the CloudStack provider, empty on purpose: credentials come from the environment |
-| `variables.tf` | `state_passphrase` (sensitive, ephemeral); `admin_cidrs` (your public IPs, validated) |
+| `variables.tf` | `state_passphrase` (sensitive, ephemeral); `ssh_public_key_file`; `sudo_password_hash` (sensitive) |
 | `data.tf` | look-ups: zone, template, compute offerings, VPC and tier offerings |
 | `network.tf` | the VPC, its three tiers, one network ACL per tier and their rules |
-| `outputs.tf` | prints what the look-ups found, the VPC's public IP and the tier IDs |
+| `instances.tf` | the 7 VMs: name, tier, fixed IP and size |
+| `cloud-init.yaml.tftpl` | first-boot setup of every VM: the admin user, its SSH key and sudo password |
+| `outputs.tf` | prints what the look-ups found, the VPC's public IP, the tier IDs and the VM IPs |
 | `.terraform.lock.hcl` | written by `tofu init`: the exact provider version and its checksums. **Committed**, so every `init` gets the same, verified provider |
 
 Not in Git (see `.gitignore`): `.terraform/` (the downloaded provider), `terraform.tfstate*` (the state), `*.tfvars`.
@@ -118,7 +129,80 @@ How CloudStack's network ACLs behave, and so how to read `network.tf`:
 
 `managed = true` on each ruleset: a rule added by hand (in the EduCloud UI or with `cmk`) is deleted on the next `apply`, so the ACLs cannot drift from this file.
 
-## 6. Look-ups (`data.tf`)
+## 6. VMs and admin access (`instances.tf`, `cloud-init.yaml.tftpl`)
+
+### The VMs
+
+| VM | Tier | IP | Offering (vCPU / RAM / root disk) |
+|---|---|---|---|
+| `ec-master-01` … `03` | `nodes` | 10.10.30.10 – .12 | Small Instance ++ (2 / 6 GiB / 40 GB) |
+| `ec-worker-01`, `02` | `nodes` | 10.10.30.20, .21 | Small Instance ++ (2 / 6 GiB / 40 GB) |
+| `ec-gw-01` | `edge` | 10.10.31.30 | Small Instance (1 / 1 GiB / 10 GB) |
+| `ec-rancher-01` | `mgmt` | 10.10.31.40 | Medium Instance (2 / 8 GiB / 50 GB) |
+
+`local.vms` in `instances.tf` is the list; `for_each` creates one `cloudstack_instance` per entry, so adding a node is one line. The VMs differ only in name, tier, IP and size.
+
+- **Fixed IPs:** CloudStack's DHCP, on the virtual router, always gives a VM the address written here.
+- **`expunge = true`:** a destroyed VM is deleted at once. Without it, it stays in CloudStack's recycle bin and keeps counting against the quota.
+- OpenTofu creates empty machines only. Rancher and RKE2 are installed afterwards (Ansible, then Rancher).
+
+### First boot (`cloud-init.yaml.tftpl`)
+
+The Ubuntu cloud image contains [cloud-init](https://cloudinit.readthedocs.io/), which fetches this file from CloudStack on the first boot and applies it once. `templatefile()` fills in the three values. It does only what is needed to let Ansible in:
+
+| Setting | Effect |
+|---|---|
+| `users:` with one entry, `nknez`, and no `default` | the image's standard `ubuntu` user is never created. `nknez` is the user the Ansible `common` role allows over SSH (`AllowUsers`) |
+| `ssh_authorized_keys` | the public key from `~/.ssh/educloud-ansible.pub` |
+| `groups: [sudo]`, `passwd` (a hash), `lock_passwd: false` | sudo asks for the password, like on Homelab: a stolen SSH key alone is not root |
+| `ssh_pwauth: false` | SSH accepts keys only, from the first boot on |
+| `disable_root: true` | no root login over SSH |
+
+Limits to know:
+- cloud-init runs this **once**. Changing the file later does not change existing VMs; replace a VM on purpose with `tofu apply -replace='cloudstack_instance.vm["ec-worker-02"]'`.
+- Any process on a VM can read this file from CloudStack's metadata service, so it holds only a public key and a password **hash**. Never put a token or a private key in it.
+
+### Admin access: through NetBird
+
+No VM is reachable from the internet, and EduCloud could not offer that anyway: its additional "public" IPs are private addresses (10.52.x, 10.53.x) that only the school network and its VPN can reach. Only the VPC's source NAT IP, used for outbound traffic, is on the internet.
+
+Access goes through [NetBird](https://netbird.io): `ec-gw-01` runs the NetBird client as a **routing peer** for the VPC (10.10.30.0/23), and the admin's PC runs the client too. Both only dial out. A NetBird policy lets the PC reach the VPC on TCP 22, 443 and 6443; the gateway forwards that traffic with its own address (masquerade), which is what the `nodes` and `mgmt` ACLs allow. The Ansible role and the dashboard objects are described in [ansible/README.md](../../ansible/README.md), section 8.
+
+With NetBird connected, the VMs are reached at their own addresses. `~/.ssh/config`:
+
+```
+Host ec-gw-01
+    HostName 10.10.31.30
+Host ec-master-01
+    HostName 10.10.30.10
+Host ec-master-02
+    HostName 10.10.30.11
+Host ec-master-03
+    HostName 10.10.30.12
+Host ec-worker-01
+    HostName 10.10.30.20
+Host ec-worker-02
+    HostName 10.10.30.21
+Host ec-rancher-01
+    HostName 10.10.31.40
+
+Host ec-*
+    User nknez
+    IdentityFile ~/.ssh/educloud-ansible
+    IdentitiesOnly yes
+```
+
+Break-glass, if NetBird is down: the VM console in the EduCloud web UI, with the admin user's password.
+
+How it was bootstrapped (2026-11-17): before NetBird ran, a temporary port forward (TCP 22 on a 10.53.x address, reachable over the school VPN) led to `ec-gw-01`, which also served as SSH jump host. It was removed once NetBird worked.
+
+### Verified on the VMs (2026-11-17)
+
+- cloud-init finished on first boot: user `nknez`, key-only SSH, no `ubuntu` user. Its status is "degraded" because of two harmless warnings (no default user to give CloudStack's generated password to; a DHCP probe during boot).
+- NIC `ens3`; root filesystem directly on `/dev/vda1` (no LVM), grown to the offering's disk size.
+- The clock synchronises only with TCP 4460 open (section 5).
+
+## 7. Look-ups (`data.tf`)
 
 What `cmk` found on 2026-11-14, and what each look-up must return:
 
@@ -138,17 +222,20 @@ Two provider behaviours to know (provider v0.7.0 source code):
 - every filter value is a **regular expression**, so they are anchored with `^…$`: `Small Instance` alone would also match `Small Instance +` and `Small Instance ++`;
 - when several items match, the provider **silently picks the newest**. A loose template filter would pick the newer "Ubuntu 26.0.4 …" template, whose description says it has a `ubuntu/ubuntu` login baked in. That is why the template is pinned by ID: a new upload with the same name must not replace the VMs.
 
-## 7. Troubleshooting
+## 8. Troubleshooting
 
 | Symptom | Cause | Fix |
 |---|---|---|
-| `tofu` asks for `var.state_passphrase` or `var.admin_cidrs` | the env file is not loaded in this terminal, or the line is missing | `source ~/.config/educloud/cloudstack.env` |
+| `tofu` asks for `var.state_passphrase` or `var.sudo_password_hash` | the env file is not loaded in this terminal, or the line is missing | `source ~/.config/educloud/cloudstack.env` |
+| `ssh_public_key_file must exist and be an SSH PUBLIC key` | the key pair does not exist yet, or the path points at the private key | `ssh-keygen` (section 1); the variable takes the `.pub` file |
+| `ssh ec-gw-01` times out | NetBird is not connected on the PC, or its login session expired | `netbird status` and `netbird networks list` on the PC: the network 10.10.30.0/23 must be listed. On the gateway (via the console): `sudo systemctl restart netbird` |
+| `Permission denied (publickey)` | the key is not loaded, or cloud-init failed on the VM | `ssh-add ~/.ssh/educloud-ansible`; otherwise log in on the CloudStack console and read `cloud-init status --long` |
 | `passphrase is too short (minimum 16 characters)` | OpenTofu's own minimum for pbkdf2 | use the generated passphrase |
 | `decryption failed for all provided methods` | wrong passphrase for an existing state | take the one from the password manager |
 | `No … is matching with the specified regex` | the name or ID no longer exists in EduCloud | check with `cmk list templates templatefilter=executable keyword=ubuntu` (or `serviceofferings`, ...) |
 | provider error about the API URL or keys | the `CLOUDSTACK_*` variables are missing or wrong | `source` the env file; test the keys with `cmk list zones` |
 
-## 8. Sources
+## 9. Sources
 
 Checked 2026-11-14.
 

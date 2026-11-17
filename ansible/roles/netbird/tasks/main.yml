@@ -1,0 +1,10 @@
+---
+# NetBird client on a site's gateway VM (the "routing peer"). Run a single part with --tags, e.g.:
+#   ansible-playbook -i inventory/educloud gateway.yml -K --tags netbird-install
+- name: Install NetBird
+  ansible.builtin.import_tasks: install.yml
+  tags: netbird-install
+
+- name: Join the NetBird network
+  ansible.builtin.import_tasks: join.yml
+  tags: netbird-join

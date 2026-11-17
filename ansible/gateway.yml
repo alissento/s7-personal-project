@@ -1,0 +1,8 @@
+---
+# The site's gateway VM: the NetBird routing peer that links this site to the other site and to the admin.
+#   ansible-playbook -i inventory/educloud gateway.yml -K
+- name: Set up the NetBird routing peer
+  hosts: gateways
+  become: true
+  roles:
+    - netbird

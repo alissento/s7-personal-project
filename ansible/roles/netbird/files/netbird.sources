@@ -1,0 +1,7 @@
+# NetBird's package repository. Managed by Ansible (roles/netbird).
+# Signed-By: apt accepts packages from this repository only if they are signed with this key.
+Types: deb
+URIs: https://pkgs.netbird.io/debian
+Suites: stable
+Components: main
+Signed-By: /etc/apt/keyrings/netbird.asc

@@ -1,0 +1,50 @@
+---
+# NetBird comes from its own apt repository, at a pinned version (netbird_version).
+
+# The checksum pins the signing key itself: if NetBird's key ever changes, this task fails and a person
+# has to look at why, instead of the new key being trusted silently.
+# Fingerprint EFE3 7DF0 47DF 7CCD F1FC 54FA 83F7 9AD0 2977 8355, checked 2026-11-17.
+- name: Download the repository signing key
+  ansible.builtin.get_url:
+    url: https://pkgs.netbird.io/debian/public.key
+    dest: /etc/apt/keyrings/netbird.asc
+    checksum: sha256:6bd434c07e7c3a71211de79ca287e93b45deadedc4b74f1a2e83e11abe6e0bf5
+    owner: root
+    group: root
+    mode: "0644"
+
+- name: Add the NetBird repository
+  ansible.builtin.copy:
+    src: netbird.sources
+    dest: /etc/apt/sources.list.d/netbird.sources
+    owner: root
+    group: root
+    mode: "0644"
+  register: netbird_repo
+
+- name: Install the pinned NetBird version
+  ansible.builtin.apt:
+    name: "netbird={{ netbird_version }}"
+    state: present
+    update_cache: "{{ netbird_repo is changed }}"   # read the new repository's package list first
+
+# Without the hold, upgrade.yml (apt dist-upgrade) would move NetBird to whatever is newest.
+- name: Hold the package at this version
+  ansible.builtin.dpkg_selections:
+    name: netbird
+    selection: hold
+
+- name: Start NetBird now and on every boot
+  ansible.builtin.service:
+    name: netbird
+    state: started
+    enabled: true
+
+- name: Let the kernel forward packets (routing peer)
+  ansible.builtin.copy:
+    src: 60-netbird-forward.conf
+    dest: /etc/sysctl.d/60-netbird-forward.conf
+    owner: root
+    group: root
+    mode: "0644"
+  notify: Reload sysctl
