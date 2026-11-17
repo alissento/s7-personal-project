@@ -22,8 +22,10 @@ rke2_cilium_operator_replicas: 1
 rke2_psa_exempt_rancher: true
 
 # --- Rancher (roles/rancher) ---
-# sslip.io is public DNS that answers 10.10.31.40.sslip.io with 10.10.31.40, so no DNS server is needed.
-# Agents of every managed cluster connect to this name: changing it later means re-registering them.
-rancher_hostname: 10.10.31.40.sslip.io
+# An A record at Cloudflare (DNS only, not proxied) pointing to 10.10.31.40. Public DNS on purpose: the
+# agents of every managed cluster resolve it through their cluster's DNS, which forwards to the internet.
+# The address is private, so only NetBird and the VPC can reach it. Agents connect to this name: changing it
+# later means re-registering every cluster. Was 10.10.31.40.sslip.io until 2026-11-17, before any cluster.
+rancher_hostname: rancher.s7.nknez.eu
 rancher_version: 2.15.3                # latest stable chart, supports Kubernetes < 1.37 (checked 2026-11-17)
 rancher_cert_manager_version: v1.21.3  # latest release; the Rancher chart needs >= 1.15.0 (checked 2026-11-17)

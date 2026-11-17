@@ -86,6 +86,7 @@ ansible/
 ├── workstation.yml                sets up this PC: kubectl and the admin kubeconfig
 ├── gateway.yml                    the site's NetBird gateway VM
 ├── rancher.yml                    the Rancher server: single-node RKE2, cert-manager, Rancher
+├── nodes.yml                      EduCloud's cluster nodes: preparation only, Rancher installs RKE2
 ├── inventory/
 │   ├── homelab/                   WHERE and WITH WHICH VALUES
 │   │   ├── hosts.yml              the 5 machines, in groups masters / workers
@@ -222,6 +223,10 @@ Three plays on the `rancher` group (`ec-rancher-01`), always with `-i inventory/
 | Start RKE2 (tag `rke2-start`) | start RKE2, which creates the one-node cluster; wait until the node is Ready |
 | Install cert-manager and Rancher (tag `rancher`) | role `rancher` ([section 9](#9-role-rancher-the-management-server)) |
 
+### `nodes.yml`: EduCloud's cluster nodes
+
+One play: the `common` role on the `nodes` group (`ec-master-01..03`, `ec-worker-01..02`), always with `-i inventory/educloud`. No `rke2` role: Rancher installs and configures RKE2 on these nodes when it creates the EduCloud cluster. Before Rancher does that, also run `upgrade.yml -i inventory/educloud --limit nodes`, while a reboot still costs nothing.
+
 ### `cis-scan.yml`: CIS benchmark scan
 
 Runs [kube-bench](https://github.com/aquasecurity/kube-bench) on every node against the CIS Kubernetes Benchmark for RKE2 and saves the results in `docs/lab/cis/<date>/` (a `.txt` per node to read, a `.json` for the numbers). Run it on the fresh cluster as the baseline, then after each hardening step, and compare the totals (PASS / FAIL / WARN).
@@ -263,7 +268,7 @@ Only where `common_dns_servers` is set, which is EduCloud (Homelab's nodes have 
 | apply both at once (`netplan apply`, restart systemd-resolved) | everything after this task downloads something |
 | fetch `https://registry-1.docker.io/v2/` and expect `401` | proves it worked: with the stale addresses the certificate does not match and this fails |
 
-Needs the ACL rules that let DNS out to Cloudflare (`opentofu/educloud/network.tf`, 502/512/517). It runs right after `preflight`, and `gateway.yml` runs it before NetBird.
+Needs the ACL rules that let DNS out to Cloudflare (`opentofu/educloud/network.tf`, 502-518, one rule per resolver). It runs right after `preflight`, and `gateway.yml` runs it before NetBird.
 
 ### `ssh` (`tasks/ssh.yml`, `files/00-ssh-hardening.conf`)
 
@@ -495,7 +500,7 @@ Rancher is a Kubernetes application (a Helm chart), so it needs a cluster to run
    ansible-playbook -i inventory/educloud rancher.yml -K --check --diff
    ansible-playbook -i inventory/educloud rancher.yml -K
    ```
-3. Open `https://10.10.31.40.sslip.io` over NetBird. The first-login password command is printed at the end of the run; Rancher then asks for a new admin password.
+3. Open `https://rancher.s7.nknez.eu` over NetBird. The first-login password command is printed at the end of the run; Rancher then asks for a new admin password.
 
 ### What the role does (`tasks/main.yml`)
 
@@ -506,7 +511,7 @@ Rancher is a Kubernetes application (a Helm chart), so it needs a cluster to run
 | write `rancher.yaml` (Rancher `rancher_version`), wait until the deployment is rolled out | written only after cert-manager runs, for the reason above; the first start takes 5–10 minutes |
 | print the login command | the generated first-login password is never printed or stored in the repo |
 
-Rancher values (`templates/rancher.yaml.j2`): `hostname: 10.10.31.40.sslip.io` (sslip.io is public DNS that answers with the IP in the name, so no DNS server is needed); `replicas: 1`; `ingress.tls.source: rancher` (Rancher's own CA, so browsers warn; agents get the CA from Rancher); `bootstrapPassword` empty, so Rancher generates one.
+Rancher values (`templates/rancher.yaml.j2`): `hostname: rancher.s7.nknez.eu` (an A record at Cloudflare pointing to the private 10.10.31.40, so every cluster's agents can resolve it; until 2026-11-17 it was `10.10.31.40.sslip.io`); `replicas: 1`; `ingress.tls.source: rancher` (Rancher's own CA, so browsers warn; agents get the CA from Rancher); `bootstrapPassword` empty, so Rancher generates one.
 
 **The hostname is permanent:** every managed cluster's agents connect to it, and a restore from backup must use the same one. Changing it later means re-registering both clusters.
 

@@ -16,6 +16,10 @@
 #   ACL here ends with an explicit "deny all" in both directions.
 # - for egress rules the CIDR is the destination; the source is always the
 #   whole tier, so a rule cannot be limited to one VM.
+# - ONE CIDR per rule. With several, the VR enforces only the last one stored
+#   and silently ignores the rest: rule 110 of tier mgmt listed nodes and edge,
+#   and only the nodes reached Rancher; of the DNS rules only 1.1.1.1 worked,
+#   never 1.0.0.1 (found 2026-11-17). Hence pairs like 110/111 and 502/503.
 #
 # Numbering: 1xx ingress allow, 199 ingress deny all,
 #            5xx egress allow,  599 egress deny all.
@@ -27,7 +31,7 @@
 # DNS: the VMs ask Cloudflare (1.1.1.1, 1.0.0.1), not the VR. The VR forwards to the school's resolvers,
 # which returned stale addresses for AWS-hosted names: registry-1.docker.io and quay.io resolved to IPs
 # that now serve other websites, so no container image could be pulled (found on ec-rancher-01,
-# 2026-11-17). Rules 502/512/517 allow plain DNS and DNS over TLS (853) to Cloudflare; Ansible points
+# 2026-11-17). Rules 502-518 allow plain DNS and DNS over TLS (853) to Cloudflare; Ansible points
 # the VMs at it (roles/common, tasks/dns.yml). The VR rules 500/510 stay for now: a VM that Ansible has
 # not switched yet (ec-gw-01 until it is reachable over SSH) still needs them. Remove them once every VM
 # uses Cloudflare.
@@ -137,7 +141,15 @@ resource "cloudstack_network_acl_ruleset" "nodes" {
     traffic_type = "egress"
     protocol     = "udp"
     port         = "53"
-    cidr_list    = local.public_dns
+    cidr_list    = [local.public_dns[0]]
+  }
+  rule {
+    rule_number  = 503
+    description  = "DNS to Cloudflare, backup resolver"
+    traffic_type = "egress"
+    protocol     = "udp"
+    port         = "53"
+    cidr_list    = [local.public_dns[1]]
   }
   rule {
     rule_number  = 510
@@ -153,7 +165,15 @@ resource "cloudstack_network_acl_ruleset" "nodes" {
     traffic_type = "egress"
     protocol     = "tcp"
     port         = "53"
-    cidr_list    = local.public_dns
+    cidr_list    = [local.public_dns[0]]
+  }
+  rule {
+    rule_number  = 513
+    description  = "DNS over TCP to Cloudflare, backup resolver"
+    traffic_type = "egress"
+    protocol     = "tcp"
+    port         = "53"
+    cidr_list    = [local.public_dns[1]]
   }
   rule {
     rule_number  = 517
@@ -161,7 +181,15 @@ resource "cloudstack_network_acl_ruleset" "nodes" {
     traffic_type = "egress"
     protocol     = "tcp"
     port         = "853"
-    cidr_list    = local.public_dns
+    cidr_list    = [local.public_dns[0]]
+  }
+  rule {
+    rule_number  = 518
+    description  = "DNS over TLS to Cloudflare, backup resolver"
+    traffic_type = "egress"
+    protocol     = "tcp"
+    port         = "853"
+    cidr_list    = [local.public_dns[1]]
   }
   rule {
     rule_number  = 520
@@ -253,7 +281,15 @@ resource "cloudstack_network_acl_ruleset" "edge" {
     traffic_type = "egress"
     protocol     = "udp"
     port         = "53"
-    cidr_list    = local.public_dns
+    cidr_list    = [local.public_dns[0]]
+  }
+  rule {
+    rule_number  = 503
+    description  = "DNS to Cloudflare, backup resolver"
+    traffic_type = "egress"
+    protocol     = "udp"
+    port         = "53"
+    cidr_list    = [local.public_dns[1]]
   }
   rule {
     rule_number  = 510
@@ -269,7 +305,15 @@ resource "cloudstack_network_acl_ruleset" "edge" {
     traffic_type = "egress"
     protocol     = "tcp"
     port         = "53"
-    cidr_list    = local.public_dns
+    cidr_list    = [local.public_dns[0]]
+  }
+  rule {
+    rule_number  = 513
+    description  = "DNS over TCP to Cloudflare, backup resolver"
+    traffic_type = "egress"
+    protocol     = "tcp"
+    port         = "53"
+    cidr_list    = [local.public_dns[1]]
   }
   rule {
     rule_number  = 517
@@ -277,7 +321,15 @@ resource "cloudstack_network_acl_ruleset" "edge" {
     traffic_type = "egress"
     protocol     = "tcp"
     port         = "853"
-    cidr_list    = local.public_dns
+    cidr_list    = [local.public_dns[0]]
+  }
+  rule {
+    rule_number  = 518
+    description  = "DNS over TLS to Cloudflare, backup resolver"
+    traffic_type = "egress"
+    protocol     = "tcp"
+    port         = "853"
+    cidr_list    = [local.public_dns[1]]
   }
   rule {
     rule_number  = 520
@@ -369,11 +421,19 @@ resource "cloudstack_network_acl_ruleset" "mgmt" {
   }
   rule {
     rule_number  = 110
-    description  = "Rancher (HTTPS): agents on the nodes; UI and Homelab agents over NetBird"
+    description  = "Rancher (HTTPS): agents on the nodes"
     traffic_type = "ingress"
     protocol     = "tcp"
     port         = "443"
-    cidr_list    = [local.tiers.nodes.cidr, local.tiers.edge.cidr]
+    cidr_list    = [local.tiers.nodes.cidr]
+  }
+  rule {
+    rule_number  = 111
+    description  = "Rancher (HTTPS): UI and Homelab agents over NetBird"
+    traffic_type = "ingress"
+    protocol     = "tcp"
+    port         = "443"
+    cidr_list    = [local.tiers.edge.cidr]
   }
   rule {
     rule_number  = 120
@@ -406,7 +466,15 @@ resource "cloudstack_network_acl_ruleset" "mgmt" {
     traffic_type = "egress"
     protocol     = "udp"
     port         = "53"
-    cidr_list    = local.public_dns
+    cidr_list    = [local.public_dns[0]]
+  }
+  rule {
+    rule_number  = 503
+    description  = "DNS to Cloudflare, backup resolver"
+    traffic_type = "egress"
+    protocol     = "udp"
+    port         = "53"
+    cidr_list    = [local.public_dns[1]]
   }
   rule {
     rule_number  = 510
@@ -422,7 +490,15 @@ resource "cloudstack_network_acl_ruleset" "mgmt" {
     traffic_type = "egress"
     protocol     = "tcp"
     port         = "53"
-    cidr_list    = local.public_dns
+    cidr_list    = [local.public_dns[0]]
+  }
+  rule {
+    rule_number  = 513
+    description  = "DNS over TCP to Cloudflare, backup resolver"
+    traffic_type = "egress"
+    protocol     = "tcp"
+    port         = "53"
+    cidr_list    = [local.public_dns[1]]
   }
   rule {
     rule_number  = 517
@@ -430,7 +506,15 @@ resource "cloudstack_network_acl_ruleset" "mgmt" {
     traffic_type = "egress"
     protocol     = "tcp"
     port         = "853"
-    cidr_list    = local.public_dns
+    cidr_list    = [local.public_dns[0]]
+  }
+  rule {
+    rule_number  = 518
+    description  = "DNS over TLS to Cloudflare, backup resolver"
+    traffic_type = "egress"
+    protocol     = "tcp"
+    port         = "853"
+    cidr_list    = [local.public_dns[1]]
   }
   rule {
     rule_number  = 520

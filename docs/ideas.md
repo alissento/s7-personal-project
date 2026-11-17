@@ -209,7 +209,7 @@ Performance (requirement: "acceptable, measured latency overhead"):
 Milestone: the **skeleton by 2026-11-19**: both RKE2 clusters running, Rancher managing both, the NetBird link working.
 
 1. ~~Homelab RKE2 with Ansible~~ — done 2026-11-14: 3 masters + 2 workers Ready, VIP failover tested (~3 s), kube-bench baseline taken (`ansible/cis-scan.yml`; rerun it before hardening).
-2. EduCloud: OpenTofu for the network 10.10.30.0/24 and the 7 VMs, the Ansible `common` role; Rancher on its own VM (single-node RKE2 via the `rke2` role, Rancher hostname via sslip.io).
+2. EduCloud: OpenTofu for the network 10.10.30.0/24 and the 7 VMs, the Ansible `common` role; Rancher on its own VM (single-node RKE2 via the `rke2` role, Rancher hostname `rancher.s7.nknez.eu`, sslip.io until the domain existed).
 3. EduCloud RKE2 provisioned by Rancher (fallback: the Ansible role).
 4. NetBird: one gateway per site, routes, access policy, static routes on the nodes; import Homelab into Rancher.
 5. Check the RKE2-on-both-sites change with the coaches (§1).

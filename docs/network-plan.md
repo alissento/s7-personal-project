@@ -20,7 +20,7 @@ Rule: **no range may overlap between the two sites.** The sites are linked by Ne
 | Cilium cluster name / ID | `homelab` / 1 | `educloud` / 2 | unique per cluster |
 | NetBird gateway (routing peer) | `gw-01` 10.10.10.30 *(proposed)* | `ec-gw-01` 10.10.31.30 (tier `edge`) | advertises the site's node subnet to the other site ([ideas §2](ideas.md#2-cross-site-connectivity-netbird)) |
 | Rancher | — | `ec-rancher-01` 10.10.31.40 (tier `mgmt`) | Rancher's own single-node cluster |
-| Rancher URL | — | `https://10.10.31.40.sslip.io` | sslip.io answers with the IP in the name; permanent, since every managed cluster's agents use it |
+| Rancher URL | — | `https://rancher.s7.nknez.eu` | A record at Cloudflare (DNS only) pointing to the private 10.10.31.40, so agents in every cluster resolve it; permanent, since every managed cluster's agents use it |
 
 The Rancher server runs its own single-node RKE2 cluster, a third cluster with its own ranges (decided 2026-11-17), so none of the three overlap:
 
@@ -73,6 +73,8 @@ What the ACLs allow (everything else is denied):
 | `edge` | ICMP from the VPC; nothing from outside (NetBird only dials out) | DNS to Cloudflare (53, 853) and, for now, to the VR; 80, 443, time sync, ICMP to anywhere; 22 to the VPC; 6443 to `nodes`; all UDP to anywhere (NetBird: STUN and direct WireGuard connections to peers) |
 | `mgmt` | 443 from `nodes` and `edge`; 22 from `edge`; ICMP from the VPC | DNS to Cloudflare (53, 853) and, for now, to the VR; 80, 443, time sync, ICMP to anywhere |
 
+Every rule has exactly one CIDR. CloudStack accepts a list, but the router then enforces only the last CIDR stored and ignores the others: with `nodes` and `edge` in one rule, Rancher was reachable from the nodes but not over NetBird, and only 1.1.1.1 answered DNS, never 1.0.0.1 (found 2026-11-17). So `mgmt` has 443 as two rules (110 from `nodes`, 111 from `edge`) and each Cloudflare rule comes in pairs (502/503, 512/513, 517/518).
+
 Time sync is two rules: TCP 4460 and UDP 123. Ubuntu 26.04's chrony uses NTS (authenticated NTP), which fetches its keys over TCP 4460 before syncing over UDP 123; with only 123 open the clock never synchronised (found on `ec-gw-01`, 2026-11-17).
 
 EduCloud's additional "public" IPs are private addresses (10.52.x, 10.53.x) that only the school network and its VPN can reach; only the VPC's source NAT IP is on the internet. So nothing at EduCloud can be published to the internet, and admin access from outside the school goes through NetBird, which only dials out.
@@ -83,7 +85,7 @@ Admin access (since 2026-11-17): the admin's PC and `ec-gw-01` both run NetBird.
 
 Found on 2026-11-17, when RKE2 on `ec-rancher-01` could not pull its first image: the virtual router's answers for AWS-hosted names (`index.docker.io`, `registry-1.docker.io`, `quay.io`) were stale. Every address it returned served another website (`*.blackboard.com`, `*.silkroad.com`, `app.xerpa.ai`), so TLS failed with a certificate mismatch. The same names resolved through Cloudflare from the admin's PC gave addresses that answered correctly (Docker Hub's `401`). Names hosted on Cloudflare (`auth.docker.io`, the image download servers) were fine. The router forwards to the school's resolvers (10.0.12.101 and .102), so the stale cache is in one of the two; which one was not determined.
 
-Fix: the VMs ask Cloudflare directly. The ACLs allow DNS (53) and DNS over TLS (853) to 1.1.1.1 and 1.0.0.1 (rules 502/512/517 in `opentofu/educloud/network.tf`). The Ansible `common` role (`tasks/dns.yml`) tells netplan to ignore the DNS servers DHCP hands out, and systemd-resolved tries DNS over TLS first (`opportunistic`), so the network in between cannot alter the answers. The old rules to the router (500/510) stay until every VM has switched: `ec-gw-01` is only reachable through the console for now, and removing them earlier would cut its DNS and with it NetBird.
+Fix: the VMs ask Cloudflare directly. The ACLs allow DNS (53) and DNS over TLS (853) to 1.1.1.1 and 1.0.0.1 (rules 502-518 in `opentofu/educloud/network.tf`, one rule per resolver). The Ansible `common` role (`tasks/dns.yml`) tells netplan to ignore the DNS servers DHCP hands out, and systemd-resolved tries DNS over TLS first (`opportunistic`), so the network in between cannot alter the answers. The old rules to the router (500/510) stay until every VM has switched: `ec-gw-01` is only reachable through the console for now, and removing them earlier would cut its DNS and with it NetBird.
 
 For the DR research: the DR site depended on a third party's DNS cache without anyone noticing, until images could not be pulled.
 

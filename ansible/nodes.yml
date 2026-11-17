@@ -1,0 +1,64 @@
+---
+# Prepares EduCloud's cluster nodes before Rancher creates the cluster on them: the common role (DNS, SSH
+# hardening, swap off, base packages), then what RKE2's CIS profile checks on the host before it starts.
+# Rancher installs and configures RKE2 itself, so the rke2 role does not run here.
+#   ansible-playbook -i inventory/educloud nodes.yml -K
+- name: Prepare the EduCloud cluster nodes
+  hosts: nodes
+  become: true
+  roles:
+    - common
+
+  # On Homelab the rke2 role does this after installing RKE2. Here RKE2 is not installed yet when the
+  # cluster is created, so the nodes get it beforehand. Without it, RKE2 with the CIS profile refuses to start.
+  tasks:
+    # etcd runs as this user, not as root. Only masters run etcd (same tasks as roles/rke2/tasks/install.yml).
+    - name: Create the etcd group
+      ansible.builtin.group:
+        name: etcd
+        system: true
+      when: inventory_hostname in groups['masters']
+
+    - name: Create the etcd user
+      ansible.builtin.user:
+        name: etcd
+        group: etcd
+        comment: etcd user
+        system: true
+        create_home: false
+        shell: /usr/sbin/nologin
+      when: inventory_hostname in groups['masters']
+
+    # The kubelet refuses to start unless these match. Same values as the file RKE2 ships
+    # (/usr/local/share/rke2/rke2-cis-sysctl.conf, read from RKE2 v1.36.5 on ec-rancher-01, 2026-11-17),
+    # which Homelab copies after the install (roles/rke2/tasks/sysctl.yml).
+    - name: Apply the CIS kernel settings
+      ansible.builtin.copy:
+        dest: /etc/sysctl.d/60-rke2-cis.conf
+        content: |
+          # Managed by Ansible (nodes.yml). Values from RKE2's rke2-cis-sysctl.conf.
+          vm.panic_on_oom=0
+          vm.overcommit_memory=1
+          kernel.panic=10
+          kernel.panic_on_oops=1
+        owner: root
+        group: root
+        mode: "0644"
+      notify: Reload sysctl
+
+    # The same file as Homelab, taken from the rke2 role so there is one copy.
+    - name: Raise the inotify limits
+      ansible.builtin.copy:
+        src: roles/rke2/files/61-k8s-inotify.conf
+        dest: /etc/sysctl.d/61-k8s-inotify.conf
+        owner: root
+        group: root
+        mode: "0644"
+      notify: Reload sysctl
+
+  handlers:
+    # Same as the rke2 role's handler: re-applies every file in /etc/sysctl.d.
+    - name: Reload sysctl
+      ansible.builtin.service:
+        name: systemd-sysctl
+        state: restarted

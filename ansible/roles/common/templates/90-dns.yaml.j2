@@ -5,7 +5,10 @@ network:
   version: 2
   ethernets:
     {{ rke2_node_interface }}:
+      # netplan refuses different use-dns values for IPv4 and IPv6 DHCP, so both are set.
       dhcp4-overrides:
+        use-dns: false
+      dhcp6-overrides:
         use-dns: false
       nameservers:
         addresses:

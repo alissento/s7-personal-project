@@ -23,6 +23,15 @@
         mode: "0600"   # netplan warns about config files others can read
       notify: Apply netplan
 
+    # Not there by default on Ubuntu 26.04 (found on ec-rancher-01, 2026-11-17).
+    - name: Create systemd-resolved's drop-in folder
+      ansible.builtin.file:
+        path: /etc/systemd/resolved.conf.d
+        state: directory
+        owner: root
+        group: root
+        mode: "0755"
+
     - name: Encrypt DNS where the resolver supports it (DNS over TLS)
       ansible.builtin.template:
         src: 60-dns-over-tls.conf.j2
