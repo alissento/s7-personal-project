@@ -1,0 +1,77 @@
+---
+# Extra routes for the node, e.g. Homelab's route to EduCloud through the site's NetBird gateway.
+# Only where common_static_routes is set (inventory/homelab/group_vars/nodes.yml).
+#
+# Written to netplan (so it survives a reboot) but NOT applied with "netplan apply": on a running cluster node
+# that reconfigures the NIC, which carries the kube-vip VIP and Cilium. The route is added live with
+# "ip route replace" instead, which touches nothing else.
+- name: Add static routes
+  when: common_static_routes | length > 0
+  block:
+    # Same check as tasks/dns.yml: the file below is merged into the NIC's existing stanza by name.
+    - name: Check the existing netplan config defines the NIC by name
+      ansible.builtin.command: grep -rqE '^\s+{{ rke2_node_interface }}:' /etc/netplan/ --exclude=91-routes.yaml
+      changed_when: false
+      check_mode: false
+
+    - name: Write the routes to netplan (used from the next boot)
+      ansible.builtin.template:
+        src: 91-routes.yaml.j2
+        dest: /etc/netplan/91-routes.yaml
+        owner: root
+        group: root
+        mode: "0600"   # netplan warns about config files others can read
+
+    # Guard: read back what netplan makes of ALL files together. If the default route were missing (a later
+    # file replacing the routes list instead of adding to it), the node would lose its network at the next
+    # boot: remove the file again and stop.
+    - name: Read the merged netplan config of the NIC
+      ansible.builtin.command: netplan get ethernets.{{ rke2_node_interface }}
+      register: common_netplan_nic
+      changed_when: false
+      when: not ansible_check_mode   # in --check the file above is not really written
+
+    # The default route is either a routes entry or the older gateway4 key (or comes from DHCP).
+    - name: Check the default route and the new routes are all there
+      ansible.builtin.assert:
+        that:
+          - (common_merged_routes | selectattr('to', 'in', ['default', '0.0.0.0/0']) | list | length > 0)
+            or (common_merged_nic.gateway4 is defined) or (common_merged_nic.dhcp4 | default(false) | bool)
+          - common_static_routes | map(attribute='to') | difference(common_merged_routes | map(attribute='to')) | length == 0
+        fail_msg: "netplan's merged config for {{ rke2_node_interface }} looks wrong: {{ common_merged_nic }}"
+      vars:
+        common_merged_nic: "{{ common_netplan_nic.stdout | from_yaml | default({}, true) }}"
+        common_merged_routes: "{{ common_merged_nic.routes | default([]) }}"
+      when: not ansible_check_mode
+
+    # Also writes the generated files to /run only; nothing is applied.
+    - name: Validate the whole netplan config
+      ansible.builtin.command: netplan generate
+      changed_when: false
+      when: not ansible_check_mode
+
+  rescue:
+    - name: Remove the routes file again, so the next boot uses the old config
+      ansible.builtin.file:
+        path: /etc/netplan/91-routes.yaml
+        state: absent
+
+    - name: Stop here
+      ansible.builtin.fail:
+        msg: "The routes file was rejected and removed; see the failed task above."
+
+# Live: only adds or replaces these exact routes, and only where the kernel does not have them yet.
+- name: Read the routes the kernel has now
+  ansible.builtin.command: ip -4 route show exact {{ item.to }}
+  loop: "{{ common_static_routes }}"
+  register: common_live_routes
+  changed_when: false
+  check_mode: false
+
+- name: Add the routes now
+  ansible.builtin.command: ip route replace {{ item.item.to }} via {{ item.item.via }} dev {{ rke2_node_interface }}
+  loop: "{{ common_live_routes.results }}"
+  loop_control:
+    label: "{{ item.item.to }} via {{ item.item.via }}"
+  when: ('via ' ~ item.item.via ~ ' dev ' ~ rke2_node_interface) not in item.stdout
+  changed_when: true

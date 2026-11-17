@@ -4,3 +4,7 @@
 common_dns_servers: []
 # systemd-resolved's DNSOverTLS: "no", "opportunistic" or "yes". Only used when common_dns_servers is set.
 common_dns_over_tls: opportunistic
+
+# Extra routes for the node's NIC (tasks/routes.yml), each {to: <cidr>, via: <next hop>}. Empty: none.
+# Homelab sets its route to EduCloud in inventory/homelab/group_vars/nodes.yml.
+common_static_routes: []

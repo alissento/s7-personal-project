@@ -1,0 +1,11 @@
+# Managed by Ansible (roles/common, tasks/routes.yml). Manual changes are overwritten.
+# Merged into the stanza this NIC already has in /etc/netplan: adds routes, keeps everything else.
+network:
+  version: 2
+  ethernets:
+    {{ rke2_node_interface }}:
+      routes:
+{% for route in common_static_routes %}
+        - to: {{ route.to }}
+          via: {{ route.via }}
+{% endfor %}

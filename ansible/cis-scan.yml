@@ -5,7 +5,7 @@
 # docs/lab/cis/<date>/ (one .txt to read, one .json for numbers), as evidence for the report.
 # Run it on the fresh cluster (baseline) and again after each hardening step, then compare the totals.
 - name: CIS scan with kube-bench
-  hosts: all
+  hosts: nodes   # the cluster only, not the NetBird gateway
   become: true
   vars:
     kube_bench_version: "0.16.0"          # latest release, checked 2026-11-14

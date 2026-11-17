@@ -1,6 +1,7 @@
 ---
+# hosts: nodes, not all: the inventory also holds the site's NetBird gateway, which must not get RKE2.
 - name: Prepare all nodes and install RKE2
-  hosts: all
+  hosts: nodes
   become: true
   roles:
     - common

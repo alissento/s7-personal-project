@@ -89,15 +89,16 @@ ansible/
 ├── nodes.yml                      EduCloud's cluster nodes: preparation only, Rancher installs RKE2
 ├── inventory/
 │   ├── homelab/                   WHERE and WITH WHICH VALUES
-│   │   ├── hosts.yml              the 5 machines, in groups masters / workers
+│   │   ├── hosts.yml              the 5 nodes (group nodes: masters / workers) and hl-gw-01 (gateways)
 │   │   └── group_vars/
-│   │       ├── all.yml            values for every node: login, sudo, cluster settings
+│   │       ├── all.yml            values for every host: login, sudo, cluster settings, NetBird key
+│   │       ├── nodes.yml          the cluster nodes only: the route to EduCloud through hl-gw-01
 │   │       ├── masters.yml        rke2_type: server
 │   │       └── workers.yml        rke2_type: agent
 │   └── educloud/                  the second site; chosen with -i inventory/educloud
 │       ├── hosts.yml              groups gateways (ec-gw-01) and rancher (ec-rancher-01)
 │       └── group_vars/
-│           ├── all.yml            login, sudo, NIC name, NetBird version
+│           ├── all.yml            login, sudo, NIC name, DNS, NetBird key
 │           └── rancher.yml        the Rancher cluster: ranges, single-node settings, Rancher versions
 └── roles/                         HOW: the same for every site
     ├── netbird/                   NetBird client on a gateway VM
@@ -144,8 +145,12 @@ Ansible reads this automatically when a command runs from this folder.
 
 | Group | Hosts | IPs |
 |---|---|---|
+| `nodes` | the two groups below: everything `site.yml` installs RKE2 on | |
 | `masters` | master-01, master-02, master-03 | 10.10.10.10 – .12 |
 | `workers` | worker-01, worker-02 | 10.10.10.20, .21 |
+| `gateways` | hl-gw-01, the NetBird routing peer (`gateway.yml`); not part of the cluster | 10.10.10.30 |
+
+`site.yml` and `cis-scan.yml` target `nodes`, not `all`, so the gateway never gets RKE2. `upgrade.yml` still targets `all`: the gateway needs OS updates too.
 
 The name (`master-01`) is what Ansible and Kubernetes call the node; `ansible_host` is the IP Ansible connects to. The group names are used by the code: `groups['masters'][0]` means "the first master", which is the one that creates the cluster.
 
@@ -211,7 +216,7 @@ Two plays:
 
 ### `gateway.yml`: the NetBird gateway
 
-One play: the `netbird` role on the hosts in the `gateways` group ([section 8](#8-role-netbird-the-site-gateway)). Homelab has no gateway VM yet, so for now it is always run with `-i inventory/educloud`.
+One play: the `netbird` role on the hosts in the `gateways` group ([section 8](#8-role-netbird-the-site-gateway)). One gateway per site: `-i inventory/educloud` for `ec-gw-01`, `-i inventory/homelab` for `hl-gw-01`.
 
 ### `rancher.yml`: the Rancher server
 
@@ -269,6 +274,17 @@ Only where `common_dns_servers` is set, which is EduCloud (Homelab's nodes have 
 | fetch `https://registry-1.docker.io/v2/` and expect `401` | proves it worked: with the stale addresses the certificate does not match and this fails |
 
 Needs the ACL rules that let DNS out to Cloudflare (`opentofu/educloud/network.tf`, 502-518, one rule per resolver). It runs right after `preflight`, and `gateway.yml` runs it before NetBird.
+
+### `routes` (`tasks/routes.yml`, `templates/91-routes.yaml.j2`)
+
+Extra routes, only where `common_static_routes` is set: Homelab's nodes send traffic for EduCloud (`10.10.30.0/23`) to `hl-gw-01` (`10.10.10.30`), which carries it through NetBird. Everything else keeps using the home router. The value is in `inventory/homelab/group_vars/nodes.yml`, so the gateway itself does not get it.
+
+| Task | Why |
+|---|---|
+| check the existing netplan config defines `ens18` by name | the new file is merged into that stanza by name |
+| write `/etc/netplan/91-routes.yaml` | the route survives a reboot |
+| read back netplan's merged config, check the default route and the new route are both there, run `netplan generate` | a broken merge would cost the node its network at the next boot; on failure the file is removed again and the run stops |
+| `ip route replace`, only if the kernel does not have the route yet | adds the route now. **No `netplan apply`**: on a running node it reconfigures `ens18`, which carries the kube-vip VIP and Cilium |
 
 ### `ssh` (`tasks/ssh.yml`, `files/00-ssh-hardening.conf`)
 
@@ -420,7 +436,7 @@ The defaults describe Homelab: three masters, the first one (`rke2_init_server`)
 | `rke2_server_taint` | `true` | `false` | without the taint, ordinary workloads (Rancher) can run on the only node |
 | `rke2_cilium_operator_replicas` | unset (chart default 2) | `1` | the second operator replica needs a second node and would stay Pending |
 
-`rke2_psa_exempt_rancher: true` is only for the cluster that runs the Rancher server: it writes `/etc/rancher/rke2/rancher-pss.yaml` and points `pod-security-admission-config-file` at it ([section 9](#9-role-rancher-the-management-server)).
+`rke2_psa_exempt_rancher: true` is for every cluster Rancher's pods run on: the Rancher server's own cluster and Homelab, which is imported into Rancher (Rancher-provisioned clusters such as EduCloud get their exemptions from Rancher). It writes `/etc/rancher/rke2/rancher-pss.yaml` and points `pod-security-admission-config-file` at it ([section 9](#9-role-rancher-the-management-server)). The API server reads it only at start: after changing it, run `--tags rke2-config`, then `sudo systemctl restart rke2-server` on each master, one at a time, waiting for `Ready` in between.
 
 Joining nodes (`join.yaml.j2`, `config-agent.yaml.j2`) still go through the VIP, so a multi-node cluster without a VIP is not supported.
 
@@ -434,7 +450,9 @@ Check that Homelab is unaffected: render the templates with Homelab's variables 
 
 The client only dials **out** (TCP 443 to NetBird's servers, UDP to other peers), so the site needs no inbound port. The control server is NetBird Cloud: it hands out keys and policies, while the traffic itself goes encrypted between the peers.
 
-What the role does not do: the network, its routing peer and the access policy are defined in the NetBird dashboard (which subnets `ec-gw-01` routes, and who may reach them on which ports).
+What the role does not do: the network, its routing peer and the access policy are defined in the NetBird dashboard (which subnets each gateway routes, and who may reach them on which ports).
+
+**Site to site** ([NetBird docs](https://docs.netbird.io/manage/networks/use-cases/site-to-site), checked 2026-11-18): hosts without NetBird at one site reach the other site through the two gateways. Each gateway is the routing peer for its own site's subnet, with masquerade on, and each site's hosts have a route to the other site via their own gateway (`routes` in the `common` role, above). Traffic arrives at the other site from that site's gateway address, so the destination sees `ec-gw-01` (EduCloud) or `hl-gw-01` (Homelab), and firewalls and ACLs only need to allow the local gateway.
 
 ### `netbird-install` (`tasks/install.yml`)
 
@@ -442,7 +460,7 @@ What the role does not do: the network, its routing peer and the access policy a
 |---|---|
 | download NetBird's repository signing key, pinned by SHA-256 | apt only accepts NetBird packages signed with this key. If the key ever changes, the task fails instead of trusting the new one silently |
 | add the repository (`files/netbird.sources`) | `Signed-By` limits that key to this one repository |
-| install `netbird` at `netbird_version` | pinned version (0.83.1, checked 2026-11-17) |
+| install `netbird` at `netbird_version` | pinned version (0.83.1, checked 2026-11-17), in `defaults/main.yml`: the same at both sites |
 | hold the package | `upgrade.yml` (`apt dist-upgrade`) would otherwise move it to the newest version |
 | start the service, enabled on boot | the tunnel comes back after a reboot |
 | `net.ipv4.ip_forward = 1` (`files/60-netbird-forward.conf`) | a routing peer must pass packets on between the tunnel and the site network; the kernel refuses by default |
@@ -452,8 +470,9 @@ What the role does not do: the network, its routing peer and the access policy a
 Registers the VM with the NetBird account, once. It needs a **setup key**, created by hand in the NetBird dashboard (Setup Keys: one-off, short expiry, auto-assigned group for the gateways) and saved on the workstation:
 
 ```bash
-mkdir -p secrets/educloud && chmod 700 secrets secrets/educloud
-read -rsp 'NetBird setup key: ' k; echo; (umask 077; printf '%s\n' "$k" > secrets/educloud/netbird-setup-key); unset k
+site=educloud   # or homelab: each site has its own key
+mkdir -p secrets/$site && chmod 700 secrets secrets/$site
+read -rsp 'NetBird setup key: ' k; echo; (umask 077; printf '%s\n' "$k" > secrets/$site/netbird-setup-key); unset k
 ```
 
 | Task | Why |
@@ -465,16 +484,21 @@ read -rsp 'NetBird setup key: ' k; echo; (umask 077; printf '%s\n' "$k" > secret
 
 After the first join the VM has its own private key in `/var/lib/netbird/`, and the setup key is worthless (one-off) and can be deleted from `secrets/`.
 
-Variables, in `inventory/<site>/group_vars/all.yml`: `netbird_version`, `netbird_setup_key_file`.
+Variables: `netbird_version` in the role's `defaults/main.yml`; `netbird_setup_key_file` in `inventory/<site>/group_vars/all.yml`.
 
-### In the NetBird dashboard (by hand, 2026-11-17)
+### In the NetBird dashboard (by hand, 2026-11-17 and 2026-11-18)
 
 | Object | Value | Meaning |
 |---|---|---|
-| Peers | `NKPC` (the admin's PC), `ec-gw-01` | every machine running the NetBird client, each with its own key pair |
-| Groups | `EduCloud Gateway` (holds `ec-gw-01`), `EduCloud VPC` (holds the resource), `All` (built in: every peer) | labels that policies refer to |
+| Peers | `NKPC` (the admin's PC), `ec-gw-01`, `hl-gw-01` | every machine running the NetBird client, each with its own key pair |
+| Groups | `EduCloud Gateway` (`ec-gw-01`), `HomeLab Gateway` (`hl-gw-01`), `EduCloud VPC` and `HomeLab VPC` (the resources), `All` (built in: every peer) | labels that policies refer to |
 | Network `educloud` | resource `10.10.30.0/23` in group `EduCloud VPC`; routing peer `ec-gw-01`, masquerade on | "this subnet is reached through that peer" |
-| Policy | `All` → `EduCloud VPC`, TCP 22, 443, 6443 | who may connect to what; anything not listed is dropped on the gateway |
+| Network `homelab` | resource `10.10.10.0/24` in group `HomeLab VPC`; routing peer `hl-gw-01`, masquerade on | the same for Homelab |
+| Policy `Network address Access` | `All` → `EduCloud VPC`, TCP 22, 443, 6443 | admin access; anything not listed is dropped on the gateway |
+| Policy `HomeLab to EduCloud` | `HomeLab Gateway` → `EduCloud VPC`, TCP 443 | Homelab's nodes reach Rancher (agents of the imported cluster) |
+| Policy `EduCloud to HomeLab` | `EduCloud Gateway` → `HomeLab VPC`, ICMP | ping only, for troubleshooting; also what makes the `homelab` network active (below) |
+
+**A network without a policy is inactive** (found 2026-11-18). With only `HomeLab to EduCloud` in place, the `homelab` network showed "No Active Policies" and `hl-gw-01` did not act as its routing peer: packets from the Homelab nodes went into the tunnel with their own source address (`10.10.10.10`, seen with tcpdump on `wt0`), not masqueraded, and `ec-gw-01` dropped them. `hl-gw-01`'s own traffic worked, which hid the problem. A policy that uses the `homelab` resource (`EduCloud to HomeLab`) activated it; after `systemctl restart netbird` on both gateways, master-01 reached Rancher.
 
 Still to do: replace NetBird's built-in Default policy (every peer to every peer, all ports) with explicit ones.
 
@@ -537,6 +561,7 @@ Nothing to change in OpenTofu: the `mgmt` ACL already allows HTTPS, DNS and time
 |---|---|
 | `preflight` | the read-only checks |
 | `dns` | public DNS resolvers (EduCloud only) |
+| `routes` | static routes (Homelab: EduCloud through `hl-gw-01`) |
 | `ssh` | SSH hardening |
 | `disk` | grow the root volume |
 | `swap` | swap off |

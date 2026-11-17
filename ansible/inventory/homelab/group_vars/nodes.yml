@@ -1,0 +1,8 @@
+---
+# Every cluster node (masters and workers), not the gateway.
+
+# Reach EduCloud's VPC through this site's NetBird gateway (roles/common, tasks/routes.yml). All other
+# traffic keeps using the home router. Addresses: docs/network-plan.md.
+common_static_routes:
+  - to: 10.10.30.0/23     # EduCloud VPC: the cluster nodes and Rancher
+    via: 10.10.10.30      # hl-gw-01

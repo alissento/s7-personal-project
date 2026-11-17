@@ -30,7 +30,8 @@
   loop: "{{ ['rke2-cilium-config.yaml'] + (['kube-vip.yaml'] if rke2_api_vip | length > 0 else []) }}"
   when: rke2_type == 'server'
 
-# Only on the cluster that runs the Rancher server (rke2_psa_exempt_rancher); the server config points to it.
+# Only where Rancher's pods run (rke2_psa_exempt_rancher): the Rancher cluster and imported clusters.
+# The server config points to it.
 - name: Write the Pod Security config with Rancher's exemptions
   ansible.builtin.template:
     src: rancher-pss.yaml.j2

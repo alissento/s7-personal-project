@@ -19,4 +19,11 @@ rke2_service_cidr: 10.43.0.0/16       # service IPs, also unique per site
 rke2_cluster_dns: 10.43.0.10          # must be inside the service CIDR
 cilium_cluster_name: homelab          # unique per cluster
 cilium_cluster_id: 1                  # unique per cluster; changing it later means restarting every pod
+# Homelab is imported into Rancher (2026-11-18): exempt the namespaces Rancher's agent runs in from the CIS
+# profile's Pod Security "restricted", or the agent pod is rejected. Applied by the API server at start:
+# after changing it, restart rke2-server on each master, one at a time (README, section 7).
+rke2_psa_exempt_rancher: true
 rke2_token_dir: "{{ playbook_dir }}/secrets/homelab"   # join tokens on the workstation, gitignored
+
+# NetBird, the VPN between the sites (role netbird, gateway.yml). The version is in the role's defaults.
+netbird_setup_key_file: "{{ playbook_dir }}/secrets/homelab/netbird-setup-key"   # on the workstation, gitignored

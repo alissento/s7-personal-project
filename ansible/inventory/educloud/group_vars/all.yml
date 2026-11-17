@@ -20,5 +20,4 @@ common_dns_servers: [1.1.1.1, 1.0.0.1]
 common_dns_over_tls: opportunistic
 
 # NetBird, the VPN between the sites and for admin access (role netbird).
-netbird_version: 0.83.1   # latest release, checked 2026-11-17
 netbird_setup_key_file: "{{ playbook_dir }}/secrets/educloud/netbird-setup-key"   # on the workstation, gitignored

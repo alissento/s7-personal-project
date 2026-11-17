@@ -10,6 +10,11 @@
   ansible.builtin.import_tasks: dns.yml
   tags: dns
 
+# Extra routes (Homelab: EduCloud through the NetBird gateway). Not applied with netplan apply, see the file.
+- name: Static routes
+  ansible.builtin.import_tasks: routes.yml
+  tags: routes
+
 - name: SSH hardening
   ansible.builtin.import_tasks: ssh.yml
   tags: ssh

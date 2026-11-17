@@ -16,8 +16,8 @@ rke2_api_hostname: ""   # extra name on the API certificate; empty adds none
 # workloads (such as Rancher) have nowhere to run.
 rke2_server_taint: true
 
-# Pod Security Admission exemptions for Rancher's namespaces. Only for the cluster that runs the Rancher
-# server: see templates/rancher-pss.yaml.j2.
+# Pod Security Admission exemptions for Rancher's namespaces. For every cluster Rancher runs on or manages
+# by import (Rancher-provisioned clusters get theirs from Rancher): see templates/rancher-pss.yaml.j2.
 rke2_psa_exempt_rancher: false
 
 # Number of Cilium operator replicas. Unset keeps the chart's default (2, on different nodes); a

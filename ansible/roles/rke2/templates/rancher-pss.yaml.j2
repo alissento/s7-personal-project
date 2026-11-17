@@ -1,7 +1,10 @@
 # Managed by Ansible (roles/rke2). Manual changes are overwritten.
-# Pod Security Admission config for the cluster that runs the Rancher server. Same rules as RKE2's CIS
-# default (restricted everywhere), plus exemptions for the namespaces Rancher's own pods run in, which do
-# not meet "restricted" (Rancher docs: "You must make namespace-level exemptions ... for Rancher components").
+# Pod Security Admission config for clusters that run Rancher's pods: the Rancher server's own cluster and
+# clusters imported into Rancher (Homelab: its cluster agent, Fleet and the impersonation helper run in cattle-*
+# namespaces). Same rules as RKE2's CIS default (restricted everywhere), plus exemptions for the namespaces
+# Rancher's pods run in, which do not meet "restricted" (Rancher docs: "You must make namespace-level
+# exemptions ... for Rancher components"). Namespaces only the Rancher server uses are harmless elsewhere:
+# nothing runs in them.
 #
 # Source: Rancher v2.15, "Pod Security Admission (PSA) Restricted Exemptions",
 #   https://ranchermanager.docs.rancher.com/reference-guides/rancher-security/psa-restricted-exemptions

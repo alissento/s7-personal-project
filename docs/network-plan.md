@@ -18,7 +18,7 @@ Rule: **no range may overlap between the two sites.** The sites are linked by Ne
 | Cluster DNS | 10.43.0.10 | 10.45.0.10 | inside the service CIDR |
 | LoadBalancer pool | 10.10.10.200–239 | 10.10.30.200–239 | Cilium LB IPAM, later |
 | Cilium cluster name / ID | `homelab` / 1 | `educloud` / 2 | unique per cluster |
-| NetBird gateway (routing peer) | `gw-01` 10.10.10.30 *(proposed)* | `ec-gw-01` 10.10.31.30 (tier `edge`) | advertises the site's node subnet to the other site ([ideas §2](ideas.md#2-cross-site-connectivity-netbird)) |
+| NetBird gateway (routing peer) | `hl-gw-01` 10.10.10.30 | `ec-gw-01` 10.10.31.30 (tier `edge`) | advertises the site's node subnet to the other site ([ideas §2](ideas.md#2-cross-site-connectivity-netbird)) |
 | Rancher | — | `ec-rancher-01` 10.10.31.40 (tier `mgmt`) | Rancher's own single-node cluster |
 | Rancher URL | — | `https://rancher.s7.nknez.eu` | A record at Cloudflare (DNS only) pointing to the private 10.10.31.40, so agents in every cluster resolve it; permanent, since every managed cluster's agents use it |
 
@@ -91,7 +91,9 @@ For the DR research: the DR site depended on a third party's DNS cache without a
 
 ## Cross-site traffic
 
-Neither site opens an inbound port: the NetBird gateways only dial out, to NetBird's control server and to each other. The NetBird access policy (deny by default) lets only these through:
+Neither site opens an inbound port: the NetBird gateways only dial out, to NetBird's control server and to each other. The NetBird access policy (deny by default) lets only these through.
+
+How a Homelab node reaches EduCloud (since 2026-11-18): the node has a route `10.10.30.0/23 via 10.10.10.30` (Ansible, `common` role, `routes`), so the packet goes to `hl-gw-01`, which sends it through the NetBird tunnel to `ec-gw-01`, which masquerades it into the VPC. Rancher therefore sees `ec-gw-01`'s address, which the `mgmt` ACL allows (rule 111). The Homelab nodes keep using their home router for everything else. The reverse direction (EduCloud → Homelab) needs a route in the VPC to `10.10.10.0/24` via `ec-gw-01` and its own policy; it is not needed yet, because Rancher's agents always connect outwards.
 
 | Port | Proto | From → To | Purpose |
 |---|---|---|---|
@@ -104,7 +106,8 @@ Neither site opens an inbound port: the NetBird gateways only dial out, to NetBi
 
 | Value | Files |
 |---|---|
-| Node IPs, hostnames | `ansible/inventory/homelab/hosts.yml`, this file |
+| Node IPs, hostnames, `hl-gw-01` | `ansible/inventory/homelab/hosts.yml`, this file |
+| Homelab's route to EduCloud (`10.10.30.0/23 via 10.10.10.30`) | `ansible/inventory/homelab/group_vars/nodes.yml`, this file |
 | VIP, API hostname, CIDRs, NIC name, Cilium cluster name / ID | `ansible/inventory/homelab/group_vars/all.yml`, this file |
 | RKE2 and kube-vip versions, node region label | `ansible/inventory/homelab/group_vars/all.yml` |
 | Gateway, DNS servers (Homelab) | the nodes' own network config (not managed by Ansible), this file |

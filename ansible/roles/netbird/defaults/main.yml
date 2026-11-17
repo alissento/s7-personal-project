@@ -1,0 +1,5 @@
+---
+# Same client version at both sites, so it lives here once instead of in each site's group_vars.
+netbird_version: 0.83.1   # latest release, checked 2026-11-17
+
+# Required, from the site's group_vars: netbird_setup_key_file (each site has its own setup key).
