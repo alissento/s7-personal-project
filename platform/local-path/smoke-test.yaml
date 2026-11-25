@@ -1,0 +1,48 @@
+---
+# Smoke test after installing (README.md, step 4): a 1 GiB PVC and a pod that writes to it, then exits.
+# Runs in "default", which enforces Pod Security "restricted" under the CIS profile, so the pod meets it.
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: local-path-smoke-test
+  namespace: default
+spec:
+  accessModes: [ReadWriteOnce]
+  resources:
+    requests:
+      storage: 1Gi        # not enforced by local-path: the folder can grow until the node's disk is full
+  # no storageClassName: this tests that local-path is the default class
+---
+apiVersion: v1
+kind: Pod
+metadata:
+  name: local-path-smoke-test
+  namespace: default
+spec:
+  restartPolicy: Never
+  securityContext:
+    runAsNonRoot: true
+    runAsUser: 1000
+    runAsGroup: 1000
+    fsGroup: 1000         # the kubelet gives the volume to this group, which works on "local" volumes
+    seccompProfile:
+      type: RuntimeDefault
+  containers:
+    - name: write
+      image: docker.io/library/busybox:1.38.0
+      # Prints the volume folder's owner (its group should be 1000, set by the kubelet from fsGroup) and the file.
+      command: ["sh", "-c", "echo written-by-$(id -u) > /data/hello && ls -lnd /data /data/hello && cat /data/hello"]
+      securityContext:
+        allowPrivilegeEscalation: false
+        capabilities:
+          drop: ["ALL"]
+      resources:
+        requests: {cpu: 10m, memory: 16Mi}
+        limits: {memory: 32Mi}
+      volumeMounts:
+        - name: data
+          mountPath: /data
+  volumes:
+    - name: data
+      persistentVolumeClaim:
+        claimName: local-path-smoke-test

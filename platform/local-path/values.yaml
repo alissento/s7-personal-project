@@ -1,0 +1,60 @@
+---
+# Values for upstream's local-path-provisioner Helm chart v0.0.37, the same on both clusters.
+# Why this storage: docs/adr/0001-in-cluster-storage.md. Install and check: README.md in this folder.
+# Every key below differs from the chart's default (or pins it); everything else is the chart's default:
+# https://github.com/rancher/local-path-provisioner/blob/v0.0.37/deploy/chart/local-path-provisioner/values.yaml
+# (checked 2026-11-25).
+
+storageClass:
+  # The chart otherwise derives the name from the Helm release (cluster.local/<release>-local-path-provisioner).
+  # Every PV records it, so a renamed release would no longer clean up existing volumes. This is the name
+  # upstream's plain manifest uses.
+  provisionerName: rancher.io/local-path
+  # PVCs that name no StorageClass (most Helm charts) get this one. It must be the only default in the cluster.
+  defaultClass: true
+  # "local" instead of the chart's "hostPath":
+  #   - Velero's file system backup (DR phase) supports "local" volumes, not "hostPath" ones
+  #     (https://velero.io/docs/main/file-system-backup/, checked 2026-11-25);
+  #   - the kubelet applies a pod's fsGroup to "local" volumes, so non-root pods (CloudNativePG, anything under
+  #     Pod Security "restricted") own their data folder.
+  # Read when a volume is created: changing it later does not convert existing volumes.
+  defaultVolumeType: local
+  # Kept at the chart's defaults, stated here because they cannot be changed on an existing StorageClass:
+  reclaimPolicy: Delete                     # deleting a PVC deletes its folder and data
+  volumeBindingMode: WaitForFirstConsumer   # the folder is made on the node the pod is scheduled to
+
+# Where the volume folders go on every node. The chart's default, stated because the README and the
+# backup/disk plans refer to it. Both sites: on the 40 GB root disk for now (a second disk is a later step).
+nodePathMap:
+  - node: DEFAULT_PATH_FOR_NON_LISTED_NODES
+    paths:
+      - /opt/local-path-provisioner
+
+# The chart's default is busybox:latest, so a node could pull a different image at any time.
+# 1.38.0 is the newest release on Docker Hub (checked 2026-11-25).
+helperImage:
+  repository: docker.io/library/busybox
+  tag: 1.38.0
+
+# The provisioner itself only reads its ConfigMap and calls the Kubernetes API; the helper pods do the disk
+# work. These are the settings the chart suggests in its own values.yaml (commented out there), which together
+# meet Pod Security "restricted" for this pod. The namespace is "privileged" for the helper pods' sake
+# (namespace.yaml), so without these nothing would stop this container from running as root.
+podSecurityContext:
+  runAsNonRoot: true
+securityContext:
+  runAsUser: 65534       # nobody; the image (FROM scratch) has no user of its own
+  runAsGroup: 65534
+  allowPrivilegeEscalation: false
+  readOnlyRootFilesystem: true
+  capabilities:
+    drop: ["ALL"]
+  seccompProfile:
+    type: RuntimeDefault
+
+resources:
+  requests:
+    cpu: 10m
+    memory: 32Mi
+  limits:
+    memory: 128Mi

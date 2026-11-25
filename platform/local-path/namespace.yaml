@@ -1,0 +1,13 @@
+---
+# Applied before the Helm chart, which does not create or label its namespace.
+# Both clusters run RKE2's CIS profile, which enforces Pod Security "restricted" in every namespace without a
+# label. For each new or deleted volume the provisioner starts a short-lived helper pod on that volume's node,
+# and the helper pod mounts the node's folder (a hostPath volume) to create or remove the volume's directory.
+# Only the "privileged" level allows hostPath. Only cluster admins can create pods in this namespace.
+# https://kubernetes.io/docs/concepts/security/pod-security-admission/ (checked 2026-11-25)
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: local-path-storage
+  labels:
+    pod-security.kubernetes.io/enforce: privileged

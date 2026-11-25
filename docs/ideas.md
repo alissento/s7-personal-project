@@ -159,7 +159,9 @@ Object storage must not live on the primary site. Options: storage at EduCloud, 
 | Proxmox CSI | volumes as Proxmox disks; ties the cluster to the hypervisor |
 | Rook-Ceph | most "enterprise", heavy for 2 workers |
 
-**Proposal:** Longhorn on a second disk per worker. CloudNativePG replicates at the database level anyway.
+~~**Proposal:** Longhorn on a second disk per worker. CloudNativePG replicates at the database level anyway.~~
+
+**Decided 2026-11-25 ([ADR 0001](adr/0001-in-cluster-storage.md)):** local-path-provisioner with `local` volumes on both clusters; data that must survive a worker loss is replicated by its application (CloudNativePG, OpenBao Raft). Longhorn sits below its recommended minimum on two 2-vCPU workers, and most volumes in this plan would not use its replication. It is the candidate to revisit if a site gets a third, larger worker. Installed from [platform/local-path/](../platform/local-path/README.md).
 
 ## 8. Observability
 

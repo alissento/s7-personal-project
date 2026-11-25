@@ -63,7 +63,8 @@ flowchart LR
 | Kubernetes (EduCloud) | RKE2 | decided 2026-11-14 |
 | Cross-site connectivity | NetBird: one gateway per site, deny-by-default policy | decided 2026-11-14 |
 | Central management | Rancher, own VM at EduCloud | decided 2026-11-14 |
-| mTLS, secrets, GitOps, DR, storage, observability | — | open — see [docs/ideas.md](docs/ideas.md) |
+| In-cluster storage | local-path-provisioner v0.0.37 (`local` volumes); replication by the apps, e.g. CloudNativePG ([ADR 0001](docs/adr/0001-in-cluster-storage.md)) | decided 2026-11-25 |
+| mTLS, secrets, GitOps, DR, observability | — | open — see [docs/ideas.md](docs/ideas.md) |
 
 ## Repository layout
 
@@ -73,7 +74,7 @@ flowchart LR
 ├── ansible/          node preparation and RKE2 install (in progress)
 ├── opentofu/         (planned) EduCloud VMs via the CloudStack API; later Homelab's Proxmox VMs
 ├── clusters/         (planned) GitOps entry point per cluster
-├── platform/         (planned) shared platform services: policies, observability, secrets
+├── platform/         shared platform services, one folder each (so far: local-path storage); later policies, observability, secrets
 └── apps/             (planned) the dummy banking application
 ```
 
