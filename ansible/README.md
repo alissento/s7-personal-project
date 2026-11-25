@@ -41,13 +41,15 @@ Added on 2026-11-17 (later): the Rancher server on `ec-rancher-01`, a single-nod
 **Commands**, always run from inside `ansible/`:
 
 ```bash
-ansible all -m ping                      # can Ansible reach every node?
-ansible-lint && yamllint .               # check the code before running it
-ansible-playbook site.yml -K --check     # dry run: show what would change
-ansible-playbook site.yml -K             # prepare the nodes and install RKE2; safe to repeat
-ansible-playbook upgrade.yml -K          # OS upgrades and reboots, only when you mean to
-ansible-playbook workstation.yml -K      # kubectl + kubeconfig on this PC, once the cluster runs
+ansible -i inventory/homelab all -m ping                      # can Ansible reach every node?
+ansible-lint && yamllint .                                    # check the code before running it
+ansible-playbook -i inventory/homelab site.yml -K --check     # dry run: show what would change
+ansible-playbook -i inventory/homelab site.yml -K             # prepare the nodes and install RKE2; safe to repeat
+ansible-playbook -i inventory/homelab upgrade.yml -K          # OS upgrades and reboots, only when you mean to
+ansible-playbook -i inventory/homelab workstation.yml -K      # kubectl + kubeconfig on this PC, once the cluster runs
 ```
+
+There is no default inventory (`ansible.cfg` sets none), so every command names its site with `-i inventory/homelab` or `-i inventory/educloud`. Without `-i`, Ansible falls back to `/etc/ansible/hosts` (not present on this PC), warns that the host list is empty and reaches no node, instead of guessing a site.
 
 `-K` (`--ask-become-pass`) asks for the sudo password. A second run of `site.yml` should end with `changed=0` on every node: that is the proof nothing drifted.
 
@@ -269,7 +271,7 @@ Only where `common_dns_servers` is set, which is EduCloud (Homelab's nodes have 
 |---|---|
 | check that cloud-init's netplan file defines the NIC (`ens3`) by name | the override is merged into that definition; under another name netplan would see the NIC twice |
 | write `/etc/netplan/90-dns.yaml`: `dhcp4-overrides: use-dns: false` and the servers from `common_dns_servers` | DHCP still sets the address, but its DNS servers (the router) are ignored |
-| write `/etc/systemd/resolved.conf.d/60-dns-over-tls.conf` (`DNSOverTLS=opportunistic`) | DNS over TLS when port 853 works, plain DNS otherwise; `yes` would be stricter but stops all lookups if 853 is ever blocked |
+| write `/etc/systemd/resolved.conf.d/60-dns-over-tls.conf` (`DNSOverTLS=opportunistic`) | encrypted when possible: DNS over TLS when port 853 works, plain DNS otherwise. Not tamper-proof: this mode falls back silently and does not check the server's certificate ([resolved.conf](https://www.freedesktop.org/software/systemd/man/latest/resolved.conf.html), checked 2026-11-18). What fixes the stale answers is bypassing the school resolvers. `yes` plus the server name (`1.1.1.1#cloudflare-dns.com`) would be strict, but stops all lookups if 853 is ever blocked |
 | apply both at once (`netplan apply`, restart systemd-resolved) | everything after this task downloads something |
 | fetch `https://registry-1.docker.io/v2/` and expect `401` | proves it worked: with the stale addresses the certificate does not match and this fails |
 
@@ -448,7 +450,7 @@ Check that Homelab is unaffected: render the templates with Homelab's variables 
 
 [NetBird](https://netbird.io) is a WireGuard-based VPN with deny-by-default access policies; the reasons for choosing it are in [docs/ideas.md](../docs/ideas.md) §2. One small VM per site runs the NetBird client as a **routing peer**: it joins the NetBird network and passes traffic on between the tunnel and its site's subnets. The cluster nodes do not run NetBird.
 
-The client only dials **out** (TCP 443 to NetBird's servers, UDP to other peers), so the site needs no inbound port. The control server is NetBird Cloud: it hands out keys and policies, while the traffic itself goes encrypted between the peers.
+The client only dials **out** (TCP 443 to NetBird's servers, UDP to other peers), so the site needs no inbound port. The control server is NetBird Cloud: it hands out keys and policies. Today it also relays the traffic between the two gateways, because they make no direct connection (checked 2026-11-18, cause open); WireGuard encrypts it end to end, so the relay sees only encrypted packets.
 
 What the role does not do: the network, its routing peer and the access policy are defined in the NetBird dashboard (which subnets each gateway routes, and who may reach them on which ports).
 
@@ -479,7 +481,7 @@ read -rsp 'NetBird setup key: ' k; echo; (umask 077; printf '%s\n' "$k" > secret
 |---|---|
 | read `netbird status` | if it already says `Management: Connected`, the rest is skipped: the role is safe to repeat |
 | check the setup key file exists | stops with a clear message instead of a failed login |
-| `netbird up` with the key in the `NB_SETUP_KEY` environment variable, `no_log` | the key is not written to the VM's disk, does not show in its process list, and stays out of Ansible's output |
+| `netbird up` with the key in the `NB_SETUP_KEY` environment variable, `no_log` | the key is not written to the VM's disk and stays out of Ansible's output. It is **not** hidden on the VM: Ansible puts `NB_SETUP_KEY=…` in front of the remote command, so the key shows in `ps` while the join runs and in the sudo log. Small impact (one-off key that expires within a day); reading it from a temporary file is a hardening item |
 | check `netbird status` again | fails the run if the VM did not connect |
 
 After the first join the VM has its own private key in `/var/lib/netbird/`, and the setup key is worthless (one-off) and can be deleted from `secrets/`.
@@ -494,13 +496,14 @@ Variables: `netbird_version` in the role's `defaults/main.yml`; `netbird_setup_k
 | Groups | `EduCloud Gateway` (`ec-gw-01`), `HomeLab Gateway` (`hl-gw-01`), `EduCloud VPC` and `HomeLab VPC` (the resources), `All` (built in: every peer) | labels that policies refer to |
 | Network `educloud` | resource `10.10.30.0/23` in group `EduCloud VPC`; routing peer `ec-gw-01`, masquerade on | "this subnet is reached through that peer" |
 | Network `homelab` | resource `10.10.10.0/24` in group `HomeLab VPC`; routing peer `hl-gw-01`, masquerade on | the same for Homelab |
-| Policy `Network address Access` | `All` → `EduCloud VPC`, TCP 22, 443, 6443 | admin access; anything not listed is dropped on the gateway |
+| Policy `Network address Access` | `All` → `EduCloud VPC`, TCP 22, 443, 6443 | admin access. Too broad: `All` includes `hl-gw-01`, so every Homelab node can use it too. To be replaced by `Admins` policies (below) |
 | Policy `HomeLab to EduCloud` | `HomeLab Gateway` → `EduCloud VPC`, TCP 443 | Homelab's nodes reach Rancher (agents of the imported cluster) |
-| Policy `EduCloud to HomeLab` | `EduCloud Gateway` → `HomeLab VPC`, ICMP | ping only, for troubleshooting; also what makes the `homelab` network active (below) |
+| Policy `EduCloud to HomeLab` | `EduCloud Gateway` → `HomeLab VPC`, ICMP | ping, and **required**: it is the policy that keeps the `homelab` network active. Deleting it breaks Homelab → Rancher. NetBird: "Networks requires a Policy on every Resource" ([site to site](https://docs.netbird.io/manage/networks/use-cases/site-to-site), checked 2026-11-18) |
+| Policy `Default` (built in) | every peer → every peer, all ports | still on; to be deleted |
 
 **A network without a policy is inactive** (found 2026-11-18). With only `HomeLab to EduCloud` in place, the `homelab` network showed "No Active Policies" and `hl-gw-01` did not act as its routing peer: packets from the Homelab nodes went into the tunnel with their own source address (`10.10.10.10`, seen with tcpdump on `wt0`), not masqueraded, and `ec-gw-01` dropped them. `hl-gw-01`'s own traffic worked, which hid the problem. A policy that uses the `homelab` resource (`EduCloud to HomeLab`) activated it; after `systemctl restart netbird` on both gateways, master-01 reached Rancher.
 
-Still to do: replace NetBird's built-in Default policy (every peer to every peer, all ports) with explicit ones.
+Still to do (target in [docs/network-plan.md](../docs/network-plan.md#cross-site-traffic)): a group `Admins` with the admin's devices; policies `Admins` → `EduCloud VPC` (TCP 22, 443, 6443), `Admins` → `HomeLab VPC` (TCP 22, 6443) and `Admins` → both gateway groups (TCP 22), added **first**; then delete `Network address Access` and `Default`, restart NetBird on both gateways, and check that a Homelab node can still reach Rancher but no longer SSH into EduCloud.
 
 Found while setting it up: the gateway did not apply its routing role while the client was running. Its firewall had no forward or masquerade rules for the network, and the log showed nothing, until `sudo systemctl restart netbird`. The cause is unknown; check after the next policy change whether a restart is needed again.
 
@@ -576,9 +579,9 @@ Nothing to change in OpenTofu: the `mgmt` ACL already allows HTTPS, DNS and time
 | `rancher` | cert-manager and Rancher (`rancher.yml`) |
 
 ```bash
-ansible-playbook site.yml -K --tags swap              # one part
-ansible-playbook site.yml -K --tags rke2-config --check --diff   # preview config changes
-ansible-playbook site.yml --list-tasks                # show every task and its tags
+ansible-playbook -i inventory/homelab site.yml -K --tags swap              # one part
+ansible-playbook -i inventory/homelab site.yml -K --tags rke2-config --check --diff   # preview config changes
+ansible-playbook -i inventory/homelab site.yml --list-tasks                # show every task and its tags
 ```
 
 ---

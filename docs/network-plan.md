@@ -1,6 +1,6 @@
 # Network plan
 
-> **Homelab** values are confirmed and were checked on the nodes on 2026-11-06. **EduCloud** (the school cloud, previously Netlab; runs Apache CloudStack 4.22) values are decided (VPC design chosen on 2026-11-14) and are created by OpenTofu (`opentofu/educloud/`); they are not yet checked on running VMs. When a value changes, update every file listed under [Where the values live](#where-the-values-live).
+> **Homelab** values are confirmed and were checked on the nodes on 2026-11-06. **EduCloud** (the school cloud, previously Netlab; runs Apache CloudStack 4.22) values are decided (VPC design chosen on 2026-11-14) and are created by OpenTofu (`opentofu/educloud/`). The VMs have run since 2026-11-17; the addresses, ACLs, DNS and NetBird routes in this file were checked on them on 2026-11-17 and 2026-11-18, while the `educloud` cluster and Rancher were set up. When a value changes, update every file listed under [Where the values live](#where-the-values-live).
 
 Rule: **no range may overlap between the two sites.** The sites are linked by NetBird, which routes each site's node subnet to the other, so overlapping node subnets would break the link. Unique pod and service ranges keep logs, network policies and dashboards unambiguous, and keep Cilium Cluster Mesh possible later.
 
@@ -79,41 +79,58 @@ Time sync is two rules: TCP 4460 and UDP 123. Ubuntu 26.04's chrony uses NTS (au
 
 EduCloud's additional "public" IPs are private addresses (10.52.x, 10.53.x) that only the school network and its VPN can reach; only the VPC's source NAT IP is on the internet. So nothing at EduCloud can be published to the internet, and admin access from outside the school goes through NetBird, which only dials out.
 
-Admin access (since 2026-11-17): the admin's PC and `ec-gw-01` both run NetBird. `ec-gw-01` is the routing peer for 10.10.30.0/23, and a NetBird policy lets the PC reach the VPC on TCP 22, 443 and 6443. The traffic arrives in the other tiers from `ec-gw-01`'s address (masquerade), which is what their ACLs allow from `edge`. Break-glass: the VM console in the EduCloud UI. The temporary SSH port forward used to bootstrap this is removed.
+Admin access (since 2026-11-17): the admin's PC and `ec-gw-01` both run NetBird. `ec-gw-01` is the routing peer for 10.10.30.0/23, and a NetBird policy lets the admin reach the VPC on TCP 22, 443 and 6443. Today that policy's source is still `All` rather than the admin's devices only; see [Cross-site traffic](#cross-site-traffic). The traffic arrives in the other tiers from `ec-gw-01`'s address (masquerade), which is what their ACLs allow from `edge`. Break-glass: the VM console in the EduCloud UI. The temporary SSH port forward used to bootstrap this is removed.
 
 ### EduCloud DNS
 
 Found on 2026-11-17, when RKE2 on `ec-rancher-01` could not pull its first image: the virtual router's answers for AWS-hosted names (`index.docker.io`, `registry-1.docker.io`, `quay.io`) were stale. Every address it returned served another website (`*.blackboard.com`, `*.silkroad.com`, `app.xerpa.ai`), so TLS failed with a certificate mismatch. The same names resolved through Cloudflare from the admin's PC gave addresses that answered correctly (Docker Hub's `401`). Names hosted on Cloudflare (`auth.docker.io`, the image download servers) were fine. The router forwards to the school's resolvers (10.0.12.101 and .102), so the stale cache is in one of the two; which one was not determined.
 
-Fix: the VMs ask Cloudflare directly. The ACLs allow DNS (53) and DNS over TLS (853) to 1.1.1.1 and 1.0.0.1 (rules 502-518 in `opentofu/educloud/network.tf`, one rule per resolver). The Ansible `common` role (`tasks/dns.yml`) tells netplan to ignore the DNS servers DHCP hands out, and systemd-resolved tries DNS over TLS first (`opportunistic`), so the network in between cannot alter the answers. The old rules to the router (500/510) stay until every VM has switched: `ec-gw-01` is only reachable through the console for now, and removing them earlier would cut its DNS and with it NetBird.
+Fix: the VMs ask Cloudflare directly. The ACLs allow DNS (53) and DNS over TLS (853) to 1.1.1.1 and 1.0.0.1 (rules 502-518 in `opentofu/educloud/network.tf`, one rule per resolver). The Ansible `common` role (`tasks/dns.yml`) tells netplan to ignore the DNS servers DHCP hands out, and systemd-resolved encrypts DNS when possible (DNS over TLS, `opportunistic`). That mode falls back to plain DNS and does not check the server's certificate ([resolved.conf](https://www.freedesktop.org/software/systemd/man/latest/resolved.conf.html), checked 2026-11-18), so it is not tamper-proof: the fix is that the VMs bypass the stale school resolvers, not that the answers are authenticated. Strict DNS over TLS is a hardening item. The old rules to the router (500/510) stay until `resolvectl status ens3` shows only Cloudflare on every VM; `ec-gw-01` is reachable over NetBird since 2026-11-17, so this can now be checked.
 
 For the DR research: the DR site depended on a third party's DNS cache without anyone noticing, until images could not be pulled.
 
 ## Cross-site traffic
 
-Neither site opens an inbound port: the NetBird gateways only dial out, to NetBird's control server and to each other. The NetBird access policy (deny by default) lets only these through.
+Neither site opens an inbound port: the NetBird gateways only dial out, to NetBird Cloud. Today (checked 2026-11-18) the tunnel between them is **relayed** through NetBird Cloud's relay servers rather than direct (peer to peer); WireGuard still encrypts it end to end, so the relay sees only encrypted packets. Why no direct connection is made (likely carrier-grade NAT at Homelab) is an open item.
+
+NetBird drops everything that no policy allows. The target policies:
+
+| Policy | Source → destination | Ports | Purpose |
+|---|---|---|---|
+| Admins to EduCloud | `Admins` (the admin's devices) → `EduCloud VPC` | TCP 22, 443, 6443 | SSH and Ansible, the Rancher UI, the Kubernetes API |
+| Admins to HomeLab | `Admins` → `HomeLab VPC` | TCP 22, 6443 | SSH and Ansible, the Kubernetes API |
+| Admins to gateways | `Admins` → `EduCloud Gateway`, `HomeLab Gateway` | TCP 22 | SSH to the gateways themselves |
+| HomeLab to EduCloud | `HomeLab Gateway` → `EduCloud VPC` | TCP 443 | Rancher agents of the imported Homelab cluster |
+| EduCloud to HomeLab | `EduCloud Gateway` → `HomeLab VPC` | ICMP | ping; also keeps the `homelab` network active (a NetBird network without a policy is inactive) |
+
+**Status on 2026-11-18: not yet in place.** The admin policy still has the source `All`, which includes `hl-gw-01`, so through its masquerade every Homelab node and pod can reach TCP 22, 443 and 6443 on every EduCloud VM; and NetBird's built-in Default policy (every peer to every peer, all ports) is still on. Both are replaced by the table above (found in the review of 2026-11-18, `docs/reviews/2026-11-18-pr-review.md`, section B).
 
 How a Homelab node reaches EduCloud (since 2026-11-18): the node has a route `10.10.30.0/23 via 10.10.10.30` (Ansible, `common` role, `routes`), so the packet goes to `hl-gw-01`, which sends it through the NetBird tunnel to `ec-gw-01`, which masquerades it into the VPC. Rancher therefore sees `ec-gw-01`'s address, which the `mgmt` ACL allows (rule 111). The Homelab nodes keep using their home router for everything else. The reverse direction (EduCloud → Homelab) needs a route in the VPC to `10.10.10.0/24` via `ec-gw-01` and its own policy; it is not needed yet, because Rancher's agents always connect outwards.
+
+Ports that cross the link, by purpose:
 
 | Port | Proto | From → To | Purpose |
 |---|---|---|---|
 | 443 | TCP | Homelab nodes → `ec-rancher-01` | Rancher agents of the imported Homelab cluster |
 | 6443 | TCP | admin → masters of either site | Kubernetes API |
 | 22, 443 | TCP | admin → EduCloud VPC | SSH and Ansible; the Rancher UI (in place since 2026-11-17) |
-| 5432 | TCP | EduCloud replica → Homelab primary | database replication (DR phase) |
+| 5432 | TCP | EduCloud replica → Homelab primary | database replication (DR phase; no policy yet) |
 
 ## Where the values live
 
 | Value | Files |
 |---|---|
 | Node IPs, hostnames, `hl-gw-01` | `ansible/inventory/homelab/hosts.yml`, this file |
+| EduCloud node and gateway IPs (for Ansible) | `ansible/inventory/educloud/hosts.yml`, this file |
+| EduCloud NIC name (`ens3`), DNS servers, admin user | `ansible/inventory/educloud/group_vars/all.yml`, this file |
 | Homelab's route to EduCloud (`10.10.30.0/23 via 10.10.10.30`) | `ansible/inventory/homelab/group_vars/nodes.yml`, this file |
 | VIP, API hostname, CIDRs, NIC name, Cilium cluster name / ID | `ansible/inventory/homelab/group_vars/all.yml`, this file |
 | RKE2 and kube-vip versions, node region label | `ansible/inventory/homelab/group_vars/all.yml` |
 | Gateway, DNS servers (Homelab) | the nodes' own network config (not managed by Ansible), this file |
 | DNS servers (EduCloud) | `ansible/inventory/educloud/group_vars/all.yml` (`common_dns_servers`), `opentofu/educloud/network.tf` (`local.public_dns`, lets it out), this file |
-| EduCloud VPC, tiers, gateways, ACL rules | `opentofu/educloud/network.tf`, this file |
+| EduCloud VPC, tiers, gateways, ACL rules | `opentofu/educloud/network.tf` (resources and the header comment), this file |
 | EduCloud VM names, IPs, sizes | `opentofu/educloud/instances.tf`, `opentofu/educloud/README.md`, this file |
-| NetBird network, routing peer, groups and access policies | the NetBird dashboard (not in the repo yet) |
+| NetBird network, routing peer, groups and access policies | the NetBird dashboard (not in the repo yet), described in `ansible/README.md` §8 and above |
+| Ports that cross the link | this file, `docs/ideas.md` §2, the diagram in the root `README.md` |
 | Rancher cluster ranges, Cilium name / ID, Rancher hostname and versions | `ansible/inventory/educloud/group_vars/rancher.yml`, this file |
 | EduCloud cluster ranges (10.44/10.45) | the cluster form in Rancher (custom cluster), this file |

@@ -1,7 +1,7 @@
 ---
 # Sets up this workstation to manage the cluster: kubectl, plus an admin kubeconfig that points at the VIP.
-#   ansible-playbook workstation.yml -K               # the cluster must be running
-#   ansible-playbook workstation.yml --tags kubectl   # kubectl only: no cluster or sudo needed
+#   ansible-playbook -i inventory/homelab workstation.yml -K               # the cluster must be running
+#   ansible-playbook -i inventory/homelab workstation.yml --tags kubectl   # kubectl only: no cluster or sudo needed
 - name: Read the admin kubeconfig from the first master
   hosts: masters[0]
   become: true

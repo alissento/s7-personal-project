@@ -31,8 +31,8 @@ flowchart LR
         NLW["2 × worker<br/>standby app · PostgreSQL replica"]
         NLCP --- NLW
     end
-    HL <-->|"NetBird link (WireGuard)<br/>gateway ↔ gateway<br/>TCP 443 · 6443 · 5432 only"| NL
-    NB(["NetBird control server<br/>keys + policies, no traffic"]) -.- HL
+    HL <-->|"NetBird link (WireGuard)<br/>gateway ↔ gateway<br/>target: TCP 443 · 22/6443 · 5432 only"| NL
+    NB(["NetBird Cloud<br/>keys + policies; relays the<br/>encrypted tunnel today"]) -.- HL
     NB -.- NL
     RANCHER["Rancher<br/>own VM at EduCloud"] -.->|manages| HL
     RANCHER -.->|"provisions + manages"| NL
@@ -85,9 +85,9 @@ flowchart LR
    ```bash
    ansible-galaxy collection install -r requirements.yml   # once, on a new workstation
    ansible-lint && yamllint .                              # check before running
-   ansible-playbook site.yml -K                            # prepare the nodes; safe to repeat
-   ansible-playbook upgrade.yml -K                         # OS upgrades and reboots, only when you mean to
-   ansible-playbook workstation.yml -K                     # kubectl and kubeconfig on this machine, once the cluster runs
+   ansible-playbook -i inventory/homelab site.yml -K         # prepare the nodes; safe to repeat
+   ansible-playbook -i inventory/homelab upgrade.yml -K      # OS upgrades and reboots, only when you mean to
+   ansible-playbook -i inventory/homelab workstation.yml -K  # kubectl and kubeconfig on this machine, once the cluster runs
    ```
 
    `upgrade.yml` is separate so that `site.yml` can never reboot a node. It has no drain step yet, so don't use it on a live cluster.

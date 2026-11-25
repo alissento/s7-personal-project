@@ -68,11 +68,11 @@ Requirement: secure link between sites despite NAT and strict firewalls, without
 **Choice: NetBird.** It gives zero-trust network access between the sites (deny by default, explicit policies, every machine enrolled with its own identity) at the effort of a VPN. The zero-trust requirements inside the clusters (lateral movement, mTLS, secrets) are met by the in-cluster stack (§3), not by the link. OpenZiti stays a candidate for a stretch goal (admin access only through an overlay) and is the comparison in the Library research.
 
 Design:
-- One small **routing peer** VM per site (`gw-01` at Homelab, `ec-gw-01` at EduCloud), enrolled with a setup key. Each advertises its site's node subnet with NetBird **Networks**, the recommended feature for site-to-site links ([docs](https://docs.netbird.io/manage/networks/use-cases/site-to-site), checked 2026-11-14).
-- **Kubernetes nodes do not run NetBird.** Homelab nodes get a static route to the other site's subnet via their local gateway (set by Ansible); at EduCloud the VPC router holds that route instead (a `nexthop` static route to `ec-gw-01`). VPN software never interferes with Cilium on the nodes.
+- One small **routing peer** VM per site (`hl-gw-01` at Homelab, `ec-gw-01` at EduCloud), enrolled with a setup key. Each advertises its site's node subnet with NetBird **Networks**, the recommended feature for site-to-site links ([docs](https://docs.netbird.io/manage/networks/use-cases/site-to-site), checked 2026-11-14).
+- **Kubernetes nodes do not run NetBird.** Homelab nodes get a static route to the other site's subnet via their local gateway (set by Ansible); EduCloud's nodes need no route while Rancher's agents only dial out. Later, for DR, the VPC router gets a static route `10.10.10.0/24` via `ec-gw-01`. VPN software never interferes with Cilium on the nodes.
 - **Masquerade** (on by default): the remote site sees the gateway's IP, so no return routes are needed ([docs](https://docs.netbird.io/manage/networks/masquerade)). Trade-off: the other site cannot tell which node a connection came from.
-- **Access policy:** NetBird is deny-by-default ([docs](https://docs.netbird.io/use-cases/implement-zero-trust)). Only these cross the link: TCP 443 (Rancher agents → Rancher), TCP 6443 (Kubernetes API, admin), TCP 5432 (database replication).
-- **Control server:** NetBird Cloud's free plan for the skeleton. Traffic goes directly between the gateways, encrypted; NetBird Cloud only exchanges keys and policies. Self-hosting it on a VPS later removes that third-party dependency. Check the free plan's limits: device posture checks appear to be a paid feature.
+- **Access policy:** NetBird drops what no policy allows ([docs](https://docs.netbird.io/use-cases/implement-zero-trust)). The target is that only these cross the link: TCP 443 (Rancher agents → Rancher), TCP 6443 and 22 (admin), TCP 5432 (database replication, DR phase). Not reached yet on 2026-11-18: the admin policy's source is `All` and NetBird's built-in Default policy (every peer to every peer) is still on; the policy table and status are in the [network plan](network-plan.md#cross-site-traffic).
+- **Control server:** NetBird Cloud's free plan for the skeleton. NetBird Cloud exchanges keys and policies, and today it also relays the tunnel: the gateways have no direct connection yet (checked 2026-11-18, cause open, likely carrier-grade NAT at Homelab). WireGuard encrypts the traffic end to end, so the relay sees only encrypted packets. Self-hosting it on a VPS later removes that third-party dependency. Check the free plan's limits: device posture checks appear to be a paid feature.
 - **DR:** the secondary must be able to take over with the link down (§6). The link carries management, admin access and lower-RPO database streaming, not survival.
 - **Cilium Cluster Mesh** stays possible later, since the sites are routed. It would need masquerade off and return routes; it is not planned for the skeleton.
 
@@ -86,7 +86,7 @@ Requirements: block unauthorised lateral movement, mTLS between workloads, zero-
 | L7 + DNS egress | Cilium L7 rules, `toFQDNs` | e.g. ledger service may only `POST /transactions`; pods may reach only named external hosts |
 | Workload identity + mTLS | **Istio ambient** (ztunnel, no sidecars) or Cilium mutual authentication (SPIFFE/SPIRE) | encrypted, authenticated service-to-service traffic; identity-based AuthorizationPolicy |
 | Node-to-node encryption | Cilium WireGuard | all pod traffic between nodes is encrypted |
-| Cross-site access | NetBird access policy on the gateways | deny by default; only TCP 443, 6443 and 5432 cross sites (§2) |
+| Cross-site access | NetBird access policy on the gateways | deny by default; target: only TCP 443, 22/6443 (admin) and 5432 cross sites (§2) |
 | Admission control | Kyverno (or built-in ValidatingAdmissionPolicy) | no privileged pods, pinned images, required labels, signed images (cosign) |
 | Runtime detection | Tetragon (eBPF, same project family as Cilium) or Falco | alerts on shells in containers, sensitive file reads, unexpected processes |
 | Human access | OIDC login (Keycloak / Authentik / Dex) + RBAC | no shared admin kubeconfig; least privilege |
@@ -209,7 +209,7 @@ Performance (requirement: "acceptable, measured latency overhead"):
 Milestone: the **skeleton by 2026-11-19**: both RKE2 clusters running, Rancher managing both, the NetBird link working.
 
 1. ~~Homelab RKE2 with Ansible~~ — done 2026-11-14: 3 masters + 2 workers Ready, VIP failover tested (~3 s), kube-bench baseline taken (`ansible/cis-scan.yml`; rerun it before hardening).
-2. EduCloud: OpenTofu for the network 10.10.30.0/24 and the 7 VMs, the Ansible `common` role; Rancher on its own VM (single-node RKE2 via the `rke2` role, Rancher hostname `rancher.s7.nknez.eu`, sslip.io until the domain existed).
+2. EduCloud: OpenTofu for the network (VPC 10.10.30.0/23) and the 7 VMs, the Ansible `common` role; Rancher on its own VM (single-node RKE2 via the `rke2` role, Rancher hostname `rancher.s7.nknez.eu`, sslip.io until the domain existed).
 3. EduCloud RKE2 provisioned by Rancher (fallback: the Ansible role).
 4. NetBird: one gateway per site, routes, access policy, static routes on the nodes; import Homelab into Rancher.
 5. Check the RKE2-on-both-sites change with the coaches (§1).

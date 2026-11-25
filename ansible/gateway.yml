@@ -11,5 +11,13 @@
         name: common
         tasks_from: dns.yml
       tags: dns
+    # Key-only login, no root login: the same file the nodes get.
+    # hl-gw-01 was installed by hand, so it gets it only from here.
+    # Make sure the key works first (ssh -i <key> nknez@<gateway> true): password login is switched off.
+    - name: SSH hardening
+      ansible.builtin.import_role:
+        name: common
+        tasks_from: ssh.yml
+      tags: ssh
   roles:
     - netbird

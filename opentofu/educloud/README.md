@@ -166,7 +166,7 @@ Limits to know:
 
 No VM is reachable from the internet, and EduCloud could not offer that anyway: its additional "public" IPs are private addresses (10.52.x, 10.53.x) that only the school network and its VPN can reach. Only the VPC's source NAT IP, used for outbound traffic, is on the internet.
 
-Access goes through [NetBird](https://netbird.io): `ec-gw-01` runs the NetBird client as a **routing peer** for the VPC (10.10.30.0/23), and the admin's PC runs the client too. Both only dial out. A NetBird policy lets the PC reach the VPC on TCP 22, 443 and 6443; the gateway forwards that traffic with its own address (masquerade), which is what the `nodes` and `mgmt` ACLs allow. The Ansible role and the dashboard objects are described in [ansible/README.md](../../ansible/README.md), section 8.
+Access goes through [NetBird](https://netbird.io): `ec-gw-01` runs the NetBird client as a **routing peer** for the VPC (10.10.30.0/23), and the admin's PC runs the client too. Both only dial out. A NetBird policy lets the admin reach the VPC on TCP 22, 443 and 6443 (its source is still `All` on 2026-11-18, to be narrowed to an `Admins` group: [network plan](../../docs/network-plan.md#cross-site-traffic)); the gateway forwards that traffic with its own address (masquerade), which is what the `nodes` and `mgmt` ACLs allow. The Ansible role and the dashboard objects are described in [ansible/README.md](../../ansible/README.md), section 8.
 
 With NetBird connected, the VMs are reached at their own addresses. `~/.ssh/config`:
 

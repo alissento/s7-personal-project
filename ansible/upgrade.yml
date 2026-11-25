@@ -1,6 +1,6 @@
 ---
 # Full OS upgrade. Run it on purpose, never as part of site.yml:
-#   ansible-playbook upgrade.yml -K
+#   ansible-playbook -i inventory/homelab upgrade.yml -K
 #
 # Safe while the cluster does not exist yet. Once it does, this playbook must first
 # gain a drain before the reboot and a "node Ready" wait after it: it has neither today.

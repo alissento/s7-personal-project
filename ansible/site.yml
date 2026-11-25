@@ -8,7 +8,8 @@
     - rke2
 
 # Starting is ordered, so it lives in its own plays. Each waits until its node is Ready before the next starts.
-# First start of the first master only:  ansible-playbook site.yml -K --tags rke2-start --limit master-01
+# First start of the first master only:
+#   ansible-playbook -i inventory/homelab site.yml -K --tags rke2-start --limit master-01
 - name: Start the first master (creates the cluster)
   hosts: masters[0]
   become: true

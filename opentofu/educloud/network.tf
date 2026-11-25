@@ -32,9 +32,9 @@
 # which returned stale addresses for AWS-hosted names: registry-1.docker.io and quay.io resolved to IPs
 # that now serve other websites, so no container image could be pulled (found on ec-rancher-01,
 # 2026-11-17). Rules 502-518 allow plain DNS and DNS over TLS (853) to Cloudflare; Ansible points
-# the VMs at it (roles/common, tasks/dns.yml). The VR rules 500/510 stay for now: a VM that Ansible has
-# not switched yet (ec-gw-01 until it is reachable over SSH) still needs them. Remove them once every VM
-# uses Cloudflare.
+# the VMs at it (roles/common, tasks/dns.yml). DNS over TLS is opportunistic (falls back to plain DNS,
+# no certificate check), so it encrypts when possible but is not tamper-proof. The VR rules 500/510 stay
+# for now: remove them once `resolvectl status ens3` shows only Cloudflare on every VM.
 
 locals {
   vpc_cidr = "10.10.30.0/23"
@@ -177,7 +177,7 @@ resource "cloudstack_network_acl_ruleset" "nodes" {
   }
   rule {
     rule_number  = 517
-    description  = "DNS over TLS to Cloudflare (encrypted, so the network in between cannot alter answers)"
+    description  = "DNS over TLS to Cloudflare (encrypted when the server supports it)"
     traffic_type = "egress"
     protocol     = "tcp"
     port         = "853"
@@ -317,7 +317,7 @@ resource "cloudstack_network_acl_ruleset" "edge" {
   }
   rule {
     rule_number  = 517
-    description  = "DNS over TLS to Cloudflare (encrypted, so the network in between cannot alter answers)"
+    description  = "DNS over TLS to Cloudflare (encrypted when the server supports it)"
     traffic_type = "egress"
     protocol     = "tcp"
     port         = "853"
@@ -502,7 +502,7 @@ resource "cloudstack_network_acl_ruleset" "mgmt" {
   }
   rule {
     rule_number  = 517
-    description  = "DNS over TLS to Cloudflare (encrypted, so the network in between cannot alter answers)"
+    description  = "DNS over TLS to Cloudflare (encrypted when the server supports it)"
     traffic_type = "egress"
     protocol     = "tcp"
     port         = "853"

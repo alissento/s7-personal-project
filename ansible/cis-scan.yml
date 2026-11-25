@@ -1,6 +1,6 @@
 ---
 # CIS Kubernetes Benchmark scan with kube-bench, run on the nodes themselves.
-#   ansible-playbook cis-scan.yml -K
+#   ansible-playbook -i inventory/homelab cis-scan.yml -K   # or -i inventory/educloud
 # Only change to the nodes: kube-bench is unpacked into /opt. Results are saved on this workstation in
 # docs/lab/cis/<date>/ (one .txt to read, one .json for numbers), as evidence for the report.
 # Run it on the fresh cluster (baseline) and again after each hardening step, then compare the totals.

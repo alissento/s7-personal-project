@@ -1,6 +1,6 @@
 ---
 # Node preparation, one file per topic. Run a single part with --tags, e.g.:
-#   ansible-playbook site.yml -K --tags disk
+#   ansible-playbook -i inventory/homelab site.yml -K --tags disk
 - name: Pre-flight checks
   ansible.builtin.import_tasks: preflight.yml
   tags: preflight
