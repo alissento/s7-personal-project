@@ -1,7 +1,8 @@
 ---
-# Sets up this workstation to manage the cluster: kubectl, plus an admin kubeconfig that points at the VIP.
-#   ansible-playbook -i inventory/homelab workstation.yml -K               # the cluster must be running
-#   ansible-playbook -i inventory/homelab workstation.yml --tags kubectl   # kubectl only: no cluster or sudo needed
+# Sets up this workstation to manage the clusters: kubectl, kubectx, kubens and Helm, plus Homelab's admin
+# kubeconfig, which points at the VIP. Run from ansible/:
+#   ansible-playbook -i inventory/homelab workstation.yml -K             # everything; Homelab must be running
+#   ansible-playbook -i inventory/homelab workstation.yml --tags tools   # the tools only: no cluster, no sudo
 - name: Read the admin kubeconfig from the first master
   hosts: masters[0]
   become: true
@@ -22,15 +23,91 @@
   vars:
     kubectl_version: "{{ rke2_version.split('+')[0] }}"   # same Kubernetes version as the cluster
     kubectl_url: "https://dl.k8s.io/release/{{ kubectl_version }}/bin/linux/amd64/kubectl"
-    kubeconfig_encoded: "{{ hostvars[groups['masters'][0]].admin_kubeconfig.content }}"
+    # kubectx switches between contexts (clusters), kubens between namespaces. Latest release, checked 2026-11-25.
+    kubectx_version: v0.11.0
+    kubectx_release: "https://github.com/ahmetb/kubectx/releases/download/{{ kubectx_version }}"
+    # Helm installs the platform charts (platform/) and apps. Latest release, checked 2026-11-25.
+    helm_version: v4.3.2
+    helm_url: "https://get.helm.sh/helm-{{ helm_version }}-linux-amd64.tar.gz"
+    downloads: ~/.cache/s7-workstation   # the downloaded archives, kept so a rerun downloads nothing
+    # RKE2 names the cluster, user and context in its kubeconfig "default". Saved here as "homelab", so kubectx
+    # and --context show which site a command goes to (EduCloud's context, from Rancher, is "educloud").
+    rke2_kubeconfig: "{{ hostvars[groups['masters'][0]].admin_kubeconfig.content | b64decode | from_yaml }}"
+    homelab_kubeconfig:
+      apiVersion: v1
+      kind: Config
+      clusters:
+        - name: homelab
+          cluster:
+            certificate-authority-data: "{{ rke2_kubeconfig.clusters[0].cluster['certificate-authority-data'] }}"
+            server: "https://{{ rke2_api_vip }}:6443"   # the VIP instead of RKE2's 127.0.0.1
+      users:
+        - name: homelab
+          user: "{{ rke2_kubeconfig.users[0].user }}"
+      contexts:
+        - name: homelab
+          context:
+            cluster: homelab
+            user: homelab
+      current-context: homelab
   tasks:
+    - name: Create the folders for the tools and their downloads
+      ansible.builtin.file:
+        path: "{{ item }}"
+        state: directory
+        mode: "0755"
+      loop:
+        # On PATH in Ubuntu's default ~/.profile once it exists (new login shells), and before /snap/bin:
+        # a Helm installed by snap is then shadowed by this one (remove it with: sudo snap remove helm).
+        - ~/.local/bin
+        - "{{ downloads }}"
+      tags: [tools, kubectl, kubectx, helm]
+
     - name: Install kubectl
       ansible.builtin.get_url:
         url: "{{ kubectl_url }}"
         checksum: "sha256:{{ kubectl_url }}.sha256"   # refuse the download if it doesn't match the published hash
         dest: ~/.local/bin/kubectl
         mode: "0755"
-      tags: kubectl
+      tags: [tools, kubectl]
+
+    - name: Download kubectx and kubens
+      ansible.builtin.get_url:
+        url: "{{ kubectx_release }}/{{ item }}_{{ kubectx_version }}_linux_x86_64.tar.gz"
+        # the release's checksums.txt; get_url uses the line for this file name
+        checksum: "sha256:{{ kubectx_release }}/checksums.txt"
+        dest: "{{ downloads }}/{{ item }}_{{ kubectx_version }}_linux_x86_64.tar.gz"
+        mode: "0644"
+      loop: [kubectx, kubens]
+      tags: [tools, kubectx]
+
+    - name: Install kubectx and kubens
+      ansible.builtin.unarchive:
+        src: "{{ downloads }}/{{ item }}_{{ kubectx_version }}_linux_x86_64.tar.gz"
+        remote_src: true            # the archive is already on this machine
+        dest: ~/.local/bin
+        include: ["{{ item }}"]     # just the binary, not the LICENSE file next to it
+        mode: "0755"
+      loop: [kubectx, kubens]
+      tags: [tools, kubectx]
+
+    - name: Download Helm
+      ansible.builtin.get_url:
+        url: "{{ helm_url }}"
+        checksum: "sha256:{{ helm_url }}.sha256"   # the published hash, as for kubectl
+        dest: "{{ downloads }}/helm-{{ helm_version }}-linux-amd64.tar.gz"
+        mode: "0644"
+      tags: [tools, helm]
+
+    - name: Install Helm
+      ansible.builtin.unarchive:
+        src: "{{ downloads }}/helm-{{ helm_version }}-linux-amd64.tar.gz"
+        remote_src: true
+        dest: ~/.local/bin
+        include: [linux-amd64/helm]          # the archive keeps the binary in a linux-amd64/ folder...
+        extra_opts: [--strip-components=1]   # ...which is dropped, so it lands as ~/.local/bin/helm
+        mode: "0755"
+      tags: [tools, helm]
 
     - name: Create the kubeconfig folder
       ansible.builtin.file:
@@ -39,16 +116,20 @@
         mode: "0700"
       tags: kubeconfig
 
-    - name: Save the kubeconfig, pointed at the VIP instead of 127.0.0.1
+    - name: Save Homelab's kubeconfig as context "homelab"
       ansible.builtin.copy:
-        content: "{{ kubeconfig_encoded | b64decode | replace('127.0.0.1', rke2_api_vip) }}"
+        content: "{{ homelab_kubeconfig | to_nice_yaml }}"
         dest: ~/.kube/homelab.yaml
         mode: "0600"
       no_log: true
       tags: kubeconfig
 
-    - name: Use this kubeconfig in new terminals
+    # Both sites' kubeconfigs in every new terminal. EduCloud's is not made here: download it in Rancher
+    # (cluster educloud, "Download KubeConfig") and save it as ~/.kube/educloud.yaml, mode 0600. kubectl skips a
+    # file in the list that does not exist yet. kubectx writes the chosen context into the first file.
+    - name: Use the Homelab and EduCloud kubeconfigs in new terminals
       ansible.builtin.lineinfile:
         path: ~/.bashrc
-        line: export KUBECONFIG=~/.kube/homelab.yaml
+        regexp: '^export KUBECONFIG='   # replaces the older line that named homelab.yaml only
+        line: export KUBECONFIG="$HOME/.kube/homelab.yaml:$HOME/.kube/educloud.yaml"
       tags: kubeconfig

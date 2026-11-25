@@ -87,7 +87,7 @@ flowchart LR
    ansible-lint && yamllint .                              # check before running
    ansible-playbook -i inventory/homelab site.yml -K         # prepare the nodes; safe to repeat
    ansible-playbook -i inventory/homelab upgrade.yml -K      # OS upgrades and reboots, only when you mean to
-   ansible-playbook -i inventory/homelab workstation.yml -K  # kubectl and kubeconfig on this machine, once the cluster runs
+   ansible-playbook -i inventory/homelab workstation.yml -K  # kubectl, kubectx, kubens, Helm and kubeconfig on this machine
    ```
 
    `upgrade.yml` is separate so that `site.yml` can never reboot a node. It has no drain step yet, so don't use it on a live cluster.

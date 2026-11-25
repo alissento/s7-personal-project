@@ -94,7 +94,8 @@ ansible-lint && yamllint .                                    # check the code b
 ansible-playbook -i inventory/homelab site.yml -K --check     # dry run: show what would change
 ansible-playbook -i inventory/homelab site.yml -K             # prepare the nodes and install RKE2; safe to repeat
 ansible-playbook -i inventory/homelab upgrade.yml -K          # OS upgrades and reboots, only when you mean to
-ansible-playbook -i inventory/homelab workstation.yml -K      # kubectl + kubeconfig on this PC, once the cluster runs
+ansible-playbook -i inventory/homelab workstation.yml -K      # kubectl, kubectx, kubens, Helm + Homelab kubeconfig
+ansible-playbook -i inventory/homelab workstation.yml --tags tools   # the tools only: no cluster, no sudo
 ```
 
 There is no default inventory (`ansible.cfg` sets none), so every command names its site with `-i inventory/homelab` or `-i inventory/educloud`. Without `-i`, Ansible falls back to `/etc/ansible/hosts` (not present on this PC), warns that the host list is empty and reaches no node, instead of guessing a site.
@@ -133,7 +134,7 @@ ansible/
 ├── requirements.yml               extra Ansible collections
 ├── site.yml                       main playbook: prepare the nodes, install RKE2
 ├── upgrade.yml                    OS upgrade and reboot, run on purpose only
-├── workstation.yml                sets up this PC: kubectl and the admin kubeconfig
+├── workstation.yml                sets up this PC: kubectl, kubectx, kubens, Helm and Homelab's admin kubeconfig
 ├── gateway.yml                    the site's NetBird gateway VM
 ├── rancher.yml                    the Rancher server: single-node RKE2, cert-manager, Rancher
 ├── nodes.yml                      EduCloud's cluster nodes: preparation only, Rancher installs RKE2
@@ -260,9 +261,17 @@ It is separate from `site.yml` so that a routine run can never reboot nodes. **N
 
 Two plays:
 1. On master-01: read `/etc/rancher/rke2/rke2.yaml`, the admin kubeconfig RKE2 writes once it runs. `no_log` keeps it out of the output.
-2. On this PC (`localhost`): install `kubectl` at the cluster's Kubernetes version (download checked against the published SHA-256), save the kubeconfig as `~/.kube/homelab.yaml` with `127.0.0.1` replaced by the VIP, and add `export KUBECONFIG=~/.kube/homelab.yaml` to `~/.bashrc`.
+2. On this PC (`localhost`):
+   - install into `~/.local/bin`, each download checked against its published SHA-256:
+     - `kubectl` at the cluster's Kubernetes version;
+     - [`kubectx` and `kubens`](https://github.com/ahmetb/kubectx) v0.11.0 (latest, checked 2026-11-25): `kubectx` lists the contexts and `kubectx educloud` switches to one, `kubens kaneo` sets the namespace of the current context, and `kubectx -` / `kubens -` go back to the previous one;
+     - [Helm](https://helm.sh) v4.3.2 (latest, checked 2026-11-25), for the charts in `platform/` and the apps. `~/.local/bin` comes before `/snap/bin` on the PATH, so a Helm installed by snap is shadowed by this one (`sudo snap remove helm` removes it);
+   - save the kubeconfig as `~/.kube/homelab.yaml`, with RKE2's `127.0.0.1` replaced by the VIP and its cluster, user and context renamed from `default` to `homelab`;
+   - set `export KUBECONFIG="$HOME/.kube/homelab.yaml:$HOME/.kube/educloud.yaml"` in `~/.bashrc`, replacing an older `KUBECONFIG` line.
 
-`--tags kubectl` installs only kubectl and needs neither the cluster nor sudo. The kubeconfig is full cluster-admin: it stays out of Git (see `.gitignore`).
+EduCloud's kubeconfig is not made by Ansible: in Rancher, open the cluster `educloud`, choose **Download KubeConfig**, save it as `~/.kube/educloud.yaml` and run `chmod 600` on it. Its context is `educloud`. Until the file exists, kubectl skips it. Do not add Rancher's kubeconfig for Homelab as well: its context would also be called `homelab`.
+
+`--tags tools` installs only the tools and needs neither the cluster nor sudo (`--tags kubectl`, `kubectx` or `helm` for one of them). The tool versions live in the playbook's `vars`; the downloaded archives stay in `~/.cache/s7-workstation`, so a rerun downloads nothing. Under `--check`, the kubectx and Helm tasks fail because check mode does not create that folder; a real run does. The kubeconfigs are full cluster-admin: they stay out of Git (see `.gitignore`).
 
 ### `gateway.yml`: the NetBird gateway
 
