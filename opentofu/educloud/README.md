@@ -186,11 +186,13 @@ Host ec-worker-02
 Host ec-rancher-01
     HostName 10.10.31.40
 
-Host ec-*
+Host ec-* 10.10.30.* 10.10.31.*
     User nknez
     IdentityFile ~/.ssh/educloud-ansible
     IdentitiesOnly yes
 ```
+
+The IP patterns are what Ansible needs: it connects to the IPs, and its inventory names no key, so this block decides which key it uses. On the laptop the key is `~/.ssh/educloud-laptop`; the whole key setup (agent, host keys) is in [ansible/README.md](../../ansible/README.md#ssh-keys).
 
 Break-glass, if NetBird is down: the VM console in the EduCloud web UI, with the admin user's password.
 

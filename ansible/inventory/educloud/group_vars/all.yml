@@ -2,8 +2,10 @@
 # Connection settings for every EduCloud VM. The user and its key are created on first boot by cloud-init
 # (opentofu/educloud/cloud-init.yaml.tftpl). A separate key from Homelab's: a key leaked at one site
 # does not open the other.
+# No ansible_ssh_private_key_file here: each workstation has its own EduCloud key (PC: educloud-ansible,
+# laptop: educloud-laptop), so the key is chosen in that machine's ~/.ssh/config, which matches the
+# IPs Ansible connects to (Host ec-* 10.10.30.* 10.10.31.*). See ansible/README.md, "SSH keys".
 ansible_user: nknez
-ansible_ssh_private_key_file: ~/.ssh/educloud-ansible
 
 # Ubuntu 26.04 uses sudo-rs by default, and Ansible does not recognise its password prompt yet
 # (Launchpad bug 2122414, checked 2026-11-02). Use the classic sudo, which is still installed next to it

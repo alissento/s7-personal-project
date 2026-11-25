@@ -34,9 +34,57 @@ Added on 2026-11-17 (later): the Rancher server on `ec-rancher-01`, a single-nod
 |---|---|---|
 | ansible-core 2.21+ | runs the playbooks | Ansible PPA: `sudo apt install ansible ansible-core` |
 | `community.general` collection | the `lvol` disk module | `ansible-galaxy collection install -r requirements.yml` |
-| SSH key `~/.ssh/homelab-ansible` | login to every node; password login is disabled | already on all nodes (`ssh-copy-id`) |
-| the key loaded in ssh-agent | the key has a passphrase, and Ansible connects to 5 nodes at once, so it cannot ask for it | `eval "$(ssh-agent -s)" && ssh-add ~/.ssh/homelab-ansible`, or `keychain` (see [Troubleshooting](#12-troubleshooting)) |
+| SSH keys, `~/.ssh/config` and ssh-agent | login to every node; password login is disabled | see [SSH keys](#ssh-keys) below |
 | the sudo password of `nknez` | Ansible becomes root with sudo on the nodes | typed at the `BECOME password:` prompt (`-K`) |
+
+### SSH keys
+
+One key per site and, at EduCloud, one per workstation, so that a key leaked at one site does not open the other, and a lost laptop can be locked out without touching the PC. All keys are ed25519 with a passphrase.
+
+| Key | On | Opens | How it got onto the VMs |
+|---|---|---|---|
+| `~/.ssh/homelab-ansible` | PC and laptop (the same key) | Homelab nodes and `hl-gw-01` | `ssh-copy-id` |
+| `~/.ssh/educloud-ansible` | PC | every EduCloud VM | cloud-init at first boot (`opentofu/educloud`, `ssh_public_key_file`) |
+| `~/.ssh/educloud-laptop` | laptop | EduCloud VMs where it was added by hand | `ssh-copy-id` from the PC |
+
+**Which key is used** is decided per machine in `~/.ssh/config`, not in the inventory, because the EduCloud key has a different name on each machine. The patterns must match the **IPs**, since Ansible connects to `ansible_host` (an IP), not to the short name:
+
+```
+Host *
+    AddKeysToAgent 8h            # a key typed in once by hand stays in the agent
+
+Host ec-* 10.10.30.* 10.10.31.*
+    User nknez
+    IdentityFile ~/.ssh/educloud-laptop     # on the PC: ~/.ssh/educloud-ansible
+    IdentitiesOnly yes
+
+Host hl-* 10.10.10.*
+    User nknez
+    IdentityFile ~/.ssh/homelab-ansible
+    IdentitiesOnly yes
+```
+
+(plus `Host ec-master-01` / `HostName 10.10.30.10` lines for the short names). `IdentitiesOnly yes` makes SSH offer only that key, even when the agent holds both.
+
+**The agent.** Ansible opens many connections at once and cannot ask for a passphrase, so the keys must be loaded in an ssh-agent. Under WSL no agent starts by itself (Ubuntu's `ssh-agent.service` only runs in a graphical session), so `~/.bashrc` starts one at a fixed socket that every terminal shares, and loads both keys for 8 hours the first time a terminal opens while it is empty. The passphrase is typed once per 8 hours, not on every run:
+
+```bash
+# --- SSH agent: one per WSL boot, shared by every terminal ---
+export SSH_AUTH_SOCK="$HOME/.ssh/agent.sock"
+ssh-add -l >/dev/null 2>&1
+if [ $? -eq 2 ]; then                   # 2 = no agent answers: first terminal, or WSL restarted (stale socket)
+    rm -f "$SSH_AUTH_SOCK"
+    ssh-agent -a "$SSH_AUTH_SOCK" >/dev/null
+fi
+alias sshkeys='ssh-add -t 8h ~/.ssh/homelab-ansible ~/.ssh/educloud-laptop'
+if ! ssh-add -l >/dev/null 2>&1; then   # agent empty (new, or keys expired): load them, Ctrl-C skips
+    ssh-add -t 8h ~/.ssh/homelab-ansible ~/.ssh/educloud-laptop
+fi
+```
+
+`ssh-add -l` lists what is loaded. The 8-hour limit (`-t`) is a trade-off: these keys open every node, so they should not stay loaded on an unattended laptop indefinitely.
+
+**Host keys.** `host_key_checking = True` (in `ansible.cfg`), so Ansible refuses a host that is not in `~/.ssh/known_hosts` yet, and it cannot ask "are you sure?" either. Connect once by hand to each new VM (or a rebuilt one) and answer `yes`. To check the fingerprint instead of trusting the first answer, compare it with the one cloud-init prints on the VM's console in the EduCloud UI (`ec2: … SSH HOST KEY FINGERPRINTS`).
 
 **Commands**, always run from inside `ansible/`:
 
@@ -600,13 +648,15 @@ The cluster runs; these are known gaps in the code:
 
 | Symptom | Cause | Fix |
 |---|---|---|
-| `ssh_askpass: exec(/usr/bin/ssh-askpass): No such file or directory` … `Permission denied (publickey)` on every node | the key has a passphrase and is not loaded in an ssh-agent | `eval "$(ssh-agent -s)" && ssh-add ~/.ssh/homelab-ansible`. Permanent: `sudo apt install keychain` and add `eval "$(keychain --eval --quiet homelab-ansible)"` to `~/.bashrc` |
+| `ssh_askpass: exec(/usr/bin/ssh-askpass): No such file or directory` … `Permission denied (publickey)` on every node | the key has a passphrase and is not loaded in the agent: the terminal was opened before the agent setup, `SSH_AUTH_SOCK` is not set, or the 8 hours ran out | `sshkeys` (or open a new terminal); `ssh-add -l` must list the key. Setup: [SSH keys](#ssh-keys) |
+| `Error connecting to agent: Connection refused` | WSL restarted, the agent died and left its socket file behind | open a new terminal (the `~/.bashrc` snippet removes the stale socket and starts a new agent) |
+| `Host key verification failed` (often next to the `ssh_askpass` line) | the VM is not in `~/.ssh/known_hosts` yet, and Ansible cannot ask to add it | `ssh <ip> true` once by hand and answer `yes` (see [SSH keys](#ssh-keys), host keys). If SSH warns that the key **changed**, find out why before removing the old entry (`ssh-keygen -R <ip>`): a rebuilt VM explains it, nothing else should |
+| `Permission denied (publickey)` on some EduCloud VMs only, with the agent loaded | this machine's EduCloud key is not on those VMs (the laptop key was added by hand) | from a machine that can log in: `ssh-copy-id -f -i ~/.ssh/educloud-laptop.pub <vm>` (copy the `.pub` there first) |
 | `Timeout waiting for privilege escalation prompt` | sudo-rs on Ubuntu 26.04 | `ansible_become_exe: sudo.ws` in `group_vars/all.yml` (already set) |
 | `BECOME password:` prompt | `-K` asks for `nknez`'s sudo password on the nodes | type it; it is the same password as on the Proxmox console |
 | `Start the guest agent` is skipped on a Homelab VM | the VM's **QEMU Guest Agent** option is off in Proxmox | enable it under VM → Options, then stop and start the VM |
 | `Wait for a default ingress class` runs out of retries | no ingress class is marked default, or Traefik did not start | `kubectl get ingressclass` and `kubectl -n kube-system get pods` on the node; if Traefik's class exists but is not default, set `ingress.ingressClassName` in `roles/rancher/templates/rancher.yaml.j2` |
 | a Rancher pod is not created, events say `violates PodSecurity "restricted"` | its namespace is not exempted | compare with Rancher's list (section 9), add the namespace to `rancher-pss.yaml.j2`, rerun with `--tags rke2-config` and restart `rke2-server` |
-| Ansible cannot log in to an EduCloud VM from a second PC | `group_vars/all.yml` names `~/.ssh/educloud-ansible`, which only the first PC has | pass that PC's key: `-e ansible_ssh_private_key_file=~/.ssh/<its key>` |
 | `x509: certificate is valid for *.blackboard.com, not index.docker.io` (or any unrelated name) when pulling images | the node still uses the VPC router's DNS, whose answers for Docker Hub and Quay are stale | run the `dns` tag (`--tags dns`); the ACL rules for Cloudflare must be applied first |
 | `Check Docker Hub's registry is reached at a real address` fails | DNS to Cloudflare is blocked (ACL rules not applied yet) or the answers are still wrong | `resolvectl status` and `getent ahostsv4 registry-1.docker.io` on the node; compare with `dig @1.1.1.1` from another machine |
 | a preflight assertion fails | the node does not match the plan (name, IP, clock, ufw) | the message says what differs; fix the node or the inventory |
