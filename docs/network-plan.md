@@ -69,7 +69,7 @@ What the ACLs allow (everything else is denied):
 
 | Tier | In | Out |
 |---|---|---|
-| `nodes` | 22 and 6443 from `edge`; ICMP from the VPC | DNS to Cloudflare (53, 853) and, for now, to the VR; 80, 443, time sync, ICMP to anywhere |
+| `nodes` | 22, 6443 and 443 (the cluster's ingress, for apps; rule 130, added 2026-11-25) from `edge`; ICMP from the VPC | DNS to Cloudflare (53, 853) and, for now, to the VR; 80, 443, time sync, ICMP to anywhere |
 | `edge` | ICMP from the VPC; nothing from outside (NetBird only dials out) | DNS to Cloudflare (53, 853) and, for now, to the VR; 80, 443, time sync, ICMP to anywhere; 22 to the VPC; 6443 to `nodes`; all UDP to anywhere (NetBird: STUN and direct WireGuard connections to peers) |
 | `mgmt` | 443 from `nodes` and `edge`; 22 from `edge`; ICMP from the VPC | DNS to Cloudflare (53, 853) and, for now, to the VR; 80, 443, time sync, ICMP to anywhere |
 
@@ -97,13 +97,13 @@ NetBird drops everything that no policy allows. The target policies:
 
 | Policy | Source → destination | Ports | Purpose |
 |---|---|---|---|
-| Admins to EduCloud | `Admins` (the admin's devices) → `EduCloud VPC` | TCP 22, 443, 6443 | SSH and Ansible, the Rancher UI, the Kubernetes API |
+| Admins to EduCloud | `Admins` (the admin's devices) → `EduCloud VPC` | TCP 22, 443, 6443 | SSH and Ansible, the Rancher UI and the apps behind the cluster's ingress (Kaneo), the Kubernetes API |
 | Admins to HomeLab | `Admins` → `HomeLab VPC` | TCP 22, 6443 | SSH and Ansible, the Kubernetes API |
 | Admins to gateways | `Admins` → `EduCloud Gateway`, `HomeLab Gateway` | TCP 22 | SSH to the gateways themselves |
 | HomeLab to EduCloud | `HomeLab Gateway` → `EduCloud VPC` | TCP 443 | Rancher agents of the imported Homelab cluster |
 | EduCloud to HomeLab | `EduCloud Gateway` → `HomeLab VPC` | ICMP | ping; also keeps the `homelab` network active (a NetBird network without a policy is inactive) |
 
-**Status on 2026-11-18: not yet in place.** The admin policy still has the source `All`, which includes `hl-gw-01`, so through its masquerade every Homelab node and pod can reach TCP 22, 443 and 6443 on every EduCloud VM; and NetBird's built-in Default policy (every peer to every peer, all ports) is still on. Both are replaced by the table above (found in the review of 2026-11-18, `docs/reviews/2026-11-18-pr-review.md`, section B).
+**Status on 2026-11-18: not yet in place.** The admin policy still has the source `All`, which includes `hl-gw-01`, so through its masquerade every Homelab node and pod can reach TCP 22, 443 and 6443 on every EduCloud VM (since ACL rule 130, 443 includes the apps behind the EduCloud cluster's ingress); and NetBird's built-in Default policy (every peer to every peer, all ports) is still on. Both are replaced by the table above (found in the review of 2026-11-18, `docs/reviews/2026-11-18-pr-review.md`, section B).
 
 How a Homelab node reaches EduCloud (since 2026-11-18): the node has a route `10.10.30.0/23 via 10.10.10.30` (Ansible, `common` role, `routes`), so the packet goes to `hl-gw-01`, which sends it through the NetBird tunnel to `ec-gw-01`, which masquerades it into the VPC. Rancher therefore sees `ec-gw-01`'s address, which the `mgmt` ACL allows (rule 111). The Homelab nodes keep using their home router for everything else. The reverse direction (EduCloud → Homelab) needs a route in the VPC to `10.10.10.0/24` via `ec-gw-01` and its own policy; it is not needed yet, because Rancher's agents always connect outwards.
 
@@ -113,7 +113,7 @@ Ports that cross the link, by purpose:
 |---|---|---|---|
 | 443 | TCP | Homelab nodes → `ec-rancher-01` | Rancher agents of the imported Homelab cluster |
 | 6443 | TCP | admin → masters of either site | Kubernetes API |
-| 22, 443 | TCP | admin → EduCloud VPC | SSH and Ansible; the Rancher UI (in place since 2026-11-17) |
+| 22, 443 | TCP | admin → EduCloud VPC | SSH and Ansible; the Rancher UI (in place since 2026-11-17); apps behind the EduCloud cluster's ingress on the workers (ACL rule 130, added 2026-11-25) |
 | 5432 | TCP | EduCloud replica → Homelab primary | database replication (DR phase; no policy yet) |
 
 ## Where the values live

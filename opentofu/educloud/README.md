@@ -6,6 +6,7 @@ Status on 2026-11-17:
 - **3a** done: the provider connects to EduCloud and looks up the zone, the Ubuntu image and the offerings.
 - **3b** done, applied 2026-11-15: the VPC with its three tiers and network ACLs ([section 5](#5-network-networktf)).
 - **3c** done, applied 2026-11-17: the 7 VMs and their first-boot setup ([section 6](#6-vms-and-admin-access-instancestf-cloud-inityamltftpl)).
+- Added 2026-11-25, not applied yet: rule 130 of tier `nodes`, TCP 443 from the NetBird gateway, so apps behind the cluster's ingress (Traefik on the workers, first Kaneo) can be reached over NetBird.
 - Admin access goes through NetBird (`ec-gw-01` is the routing peer, set up by Ansible: [ansible/README.md](../../ansible/README.md), section 8). The temporary SSH port forward used to bootstrap it was removed on 2026-11-17.
 - Later, with the Homelab gateway: the VPC static route to Homelab and the cross-site ACL rules.
 

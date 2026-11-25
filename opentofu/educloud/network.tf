@@ -117,6 +117,17 @@ resource "cloudstack_network_acl_ruleset" "nodes" {
     protocol     = "icmp"
     cidr_list    = [local.vpc_cidr]
   }
+  # The cluster's ingress (RKE2's Traefik, which listens on 443 on the workers) for apps such as
+  # Kaneo. Only 443: plain HTTP stays closed. The source is the gateway's tier, so who may use it is
+  # decided by the NetBird policy, not here (docs/network-plan.md, "Cross-site traffic").
+  rule {
+    rule_number  = 130
+    description  = "HTTPS to the cluster ingress from the NetBird gateway (apps)"
+    traffic_type = "ingress"
+    protocol     = "tcp"
+    port         = "443"
+    cidr_list    = [local.tiers.edge.cidr]
+  }
   rule {
     rule_number  = 199
     description  = "deny all other ingress"
